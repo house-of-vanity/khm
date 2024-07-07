@@ -24,7 +24,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Set up Rust
       uses: actions-rs/toolchain@v1
@@ -43,7 +43,7 @@ jobs:
       run: cargo test --target ${{ matrix.target }}
 
     - name: Upload release assets
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: khm-${{ matrix.os }}
         path: target/${{ matrix.target }}/release/
@@ -54,63 +54,31 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Download Linux build artifact
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4
       with:
         name: khm-ubuntu-latest
         path: target/x86_64-unknown-linux-gnu/release/
 
     - name: Download Windows build artifact
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4
       with:
         name: khm-windows-latest
         path: target/x86_64-pc-windows-msvc/release/
 
     - name: Download macOS build artifact
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4
       with:
         name: khm-macos-latest
         path: target/x86_64-apple-darwin/release/
 
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
+      uses: ncipollo/release-action@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: false
-
-    - name: Upload Linux Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: target/x86_64-unknown-linux-gnu/release/khm
-        asset_name: khm-linux
-        asset_content_type: application/octet-stream
-
-    - name: Upload Windows Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: target/x86_64-pc-windows-msvc/release/khm.exe
-        asset_name: khm-windows.exe
-        asset_content_type: application/octet-stream
-
-    - name: Upload macOS Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: target/x86_64-apple-darwin/release/khm
-        asset_name: khm-macos
-        asset_content_type: application/octet-stream
+        artifacts: "target/x86_64-apple-darwin/release/khm,target/x86_64-pc-windows-msvc/release/khm.exe,target/x86_64-unknown-linux-gnu/release/khm"
+        #bodyFile: "body.md"
