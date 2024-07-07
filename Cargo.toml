@@ -1,7 +1,8 @@
 [package]
-name = "untitled"
+name = "khm"
 version = "0.1.0"
 edition = "2021"
+authors = ["AB <ab@hexor.cy>"]
 
 [dependencies]
 actix-web = "4"
