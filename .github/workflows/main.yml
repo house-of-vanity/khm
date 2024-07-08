@@ -44,12 +44,6 @@ jobs:
       - name: Build MacOS and Windows
         if: matrix.os != 'ubuntu-latest'
         run: cargo build --target ${{ matrix.build_target }} --release
-      - name: Strip binary on Linux and macOS
-        if: matrix.os != 'windows-latest'
-        run: strip target/${{ matrix.build_target }}/release/${{ env.BINARY_NAME }}
-      - name: Strip binary on Windows
-        if: matrix.os == 'windows-latest'
-        run: C:\\tools\\mingw64\\bin\\strip.exe target\\${{ matrix.build_target }}\\release\\${{ env.BINARY_NAME }}.exe
       - name: Get version
         run: echo "VERSION=$(grep -P '^version = \"\\d+\\.\\d+\\.\\d+\"' Cargo.toml | awk -F '\"' '{print $2}')" >> $GITHUB_ENV
       - name: Show version
