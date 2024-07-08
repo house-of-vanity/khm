@@ -31,9 +31,6 @@ jobs:
       - uses: mbrobbel/rustfmt-check@master
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install dependencies on Windows
-        if: matrix.os == 'windows-latest'
-        run: choco install -y mingw
       - name: Install rust targets
         run: rustup target add ${{ matrix.build_target }}
       - name: Build linux MUSL
