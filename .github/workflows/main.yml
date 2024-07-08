@@ -41,14 +41,17 @@ jobs:
       - name: Build MacOS and Windows
         if: matrix.os != 'ubuntu-latest'
         run: cargo build --target ${{ matrix.build_target }} --release
-      - name: Get version
-        run: echo "VERSION=$(grep -P '^version = \"\\d+\\.\\d+\\.\\d+\"' Cargo.toml | awk -F '\"' '{print $2}')" >> $GITHUB_ENV
-      - name: Show version
-        run: echo ${{ env.VERSION }}
+      - name: Extract branch or tag name
+        id: extract_ref
+        run: |
+          REF_TYPE=$(echo "${GITHUB_REF}" | cut -d'/' -f2)
+          REF_NAME=$(echo "${GITHUB_REF}" | cut -d'/' -f3)
+          echo "::set-output name=ref_type::${REF_TYPE}"
+          echo "::set-output name=ref_name::${REF_NAME}"
       - uses: actions/upload-artifact@v3
         name: Upload artifact
         with:
-          name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}_${{ matrix.build_target }}
+          name: ${{ env.BINARY_NAME }}_${{ steps.extract_ref.outputs.ref_name }}_${{ matrix.build_target }}
           path: target/${{ matrix.build_target }}/release/${{ env.BINARY_NAME }}*
 
   release:
@@ -59,22 +62,27 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v3
-      - name: Get version
-        run: echo "VERSION=$(grep -P '^version = \"\\d+\\.\\d+\\.\\d+\"' Cargo.toml | awk -F '\"' '{print $2}')" >> $GITHUB_ENV
+      - name: Extract branch or tag name
+        id: extract_ref
+        run: |
+          REF_TYPE=$(echo "${GITHUB_REF}" | cut -d'/' -f2)
+          REF_NAME=$(echo "${GITHUB_REF}" | cut -d'/' -f3)
+          echo "::set-output name=ref_type::${REF_TYPE}"
+          echo "::set-output name=ref_name::${REF_NAME}"
       - uses: actions/download-artifact@v3
         name: Download Linux artifact
         with:
-          name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}_x86_64-unknown-linux-musl
+          name: ${{ env.BINARY_NAME }}_${{ steps.extract_ref.outputs.ref_name }}_x86_64-unknown-linux-musl
           path: artifacts/linux/
       - uses: actions/download-artifact@v3
         name: Download Windows artifact
         with:
-          name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}_x86_64-pc-windows-msvc
+          name: ${{ env.BINARY_NAME }}_${{ steps.extract_ref.outputs.ref_name }}_x86_64-pc-windows-msvc
           path: artifacts/windows/
       - uses: actions/download-artifact@v3
         name: Download macOS artifact
         with:
-          name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}_x86_64-apple-darwin
+          name: ${{ env.BINARY_NAME }}_${{ steps.extract_ref.outputs.ref_name }}_x86_64-apple-darwin
           path: artifacts/macos/
       - name: Create Release
         id: create_release
