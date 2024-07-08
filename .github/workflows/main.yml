@@ -36,7 +36,13 @@ jobs:
         run: choco install -y mingw
       - name: Install rust targets
         run: rustup target add ${{ matrix.build_target }}
-      - name: Build
+      - name: Build linux MUSL
+        if: matrix.os == 'ubuntu-latest'
+        uses: gmiam/rust-musl-action@master
+        with:
+          args: cargo build --target $BUILD_TARGET --release
+      - name: Build MacOS and Windows
+        if: matrix.os != 'ubuntu-latest'
         run: cargo build --target ${{ matrix.build_target }} --release
       - name: Strip binary on Linux and macOS
         if: matrix.os != 'windows-latest'
