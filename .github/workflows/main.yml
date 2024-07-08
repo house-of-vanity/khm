@@ -165,7 +165,7 @@ jobs:
       - name: Set outputs
         id: get_tag
         run: |
-          echo "tag=$(echo ${GITHUB_REF} | cut -d'/' -f2)" >> $GITHUB_OUTPUT
+          echo "tag=$(echo ${GITHUB_REF} | cut -d'/' -f3)" >> $GITHUB_OUTPUT
         
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
