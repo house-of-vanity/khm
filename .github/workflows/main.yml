@@ -118,6 +118,11 @@ jobs:
         with:
           name: ${{ env.BINARY_NAME }}_linux-amd64
           path: ${{ env.BINARY_NAME }}_linux-amd64
+
+      - name: ls
+        run: |
+          ls -lah
+          ls -l ${{ env.BINARY_NAME }}_linux-amd64
           
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
