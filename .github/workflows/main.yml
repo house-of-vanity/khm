@@ -50,8 +50,10 @@ jobs:
       - name: Extract branch or tag name
         id: extract_ref
         run: |
-          echo "{ref_type}={${REF_TYPE}}" >> $GITHUB_STATE
-          echo "{ref_name}={${REF_NAME}}" >> $GITHUB_STATE
+          REF_TYPE=$(echo "${GITHUB_REF}" | cut -d'/' -f2)
+          REF_NAME=$(echo "${GITHUB_REF}" | cut -d'/' -f3)
+          echo "{ref_type}={${REF_TYPE}}" >> $GITHUB_OUTPUT
+          echo "{ref_name}={${REF_NAME}}" >> $GITHUB_OUTPUT
           
       - uses: actions/upload-artifact@v3
         name: Upload artifact
@@ -72,8 +74,8 @@ jobs:
         run: |
           REF_TYPE=$(echo "${GITHUB_REF}" | cut -d'/' -f2)
           REF_NAME=$(echo "${GITHUB_REF}" | cut -d'/' -f3)
-          echo "::set-output name=ref_type::${REF_TYPE}"
-          echo "::set-output name=ref_name::${REF_NAME}"
+          echo "{ref_type}={${REF_TYPE}}" >> $GITHUB_OUTPUT
+          echo "{ref_name}={${REF_NAME}}" >> $GITHUB_OUTPUT
       - uses: actions/download-artifact@v3
         name: Download Linux artifact
         with:
