@@ -40,10 +40,13 @@ jobs:
       run: cargo build --release --target ${{ matrix.target }}
 
     - name: Upload binaries
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: khm-${{ matrix.os }}
-        path: target/${{ matrix.target }}/release/{khm,khm.exe}
+        if-no-files-found: ignore
+        path: |
+          target/${{ matrix.target }}/release/khm.exe
+          target/${{ matrix.target }}/release/khm
         compression-level: 9
 
   publish:
