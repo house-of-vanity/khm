@@ -27,27 +27,32 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v3
+      
       - uses: dtolnay/rust-toolchain@stable
+      
       - uses: mbrobbel/rustfmt-check@master
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          
       - name: Install rust targets
         run: rustup target add ${{ matrix.build_target }}
+        
       - name: Build linux MUSL
         if: matrix.os == 'ubuntu-latest'
         uses: gmiam/rust-musl-action@master
         with:
           args: cargo build --target $BUILD_TARGET --release
+          
       - name: Build MacOS and Windows
         if: matrix.os != 'ubuntu-latest'
         run: cargo build --target ${{ matrix.build_target }} --release
+        
       - name: Extract branch or tag name
         id: extract_ref
         run: |
-          REF_TYPE=$(echo "${GITHUB_REF}" | cut -d'/' -f2)
-          REF_NAME=$(echo "${GITHUB_REF}" | cut -d'/' -f3)
-          echo "::set-output name=ref_type::${REF_TYPE}"
-          echo "::set-output name=ref_name::${REF_NAME}"
+          echo "{ref_type}={${REF_TYPE}}" >> $GITHUB_STATE
+          echo "{ref_name}={${REF_NAME}}" >> $GITHUB_STATE
+          
       - uses: actions/upload-artifact@v3
         name: Upload artifact
         with:
