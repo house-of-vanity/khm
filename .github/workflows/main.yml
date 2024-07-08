@@ -46,6 +46,10 @@ jobs:
     - name: Strip binary on Windows
       if: matrix.os == 'windows-latest'
       run: |
+        eval `cat /etc/os-release`
+        wget --no-check-certificate -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        add-apt-repository 'deb http://apt.llvm.org/${VERSION_CODENAME}/   llvm-toolchain-bionic-10  main'
+        sudo apt update
         sudo apt-get install -y llvm
         llvm-strip-10 target/${{ matrix.target }}/release/khm.exe
 
