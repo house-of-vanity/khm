@@ -2,5 +2,5 @@
 
 FROM alpine:latest
 WORKDIR /
-COPY khm_linux-amd64/khm /
+COPY ./khm_linux-amd64/khm /
 ENTRYPOINT /khm
