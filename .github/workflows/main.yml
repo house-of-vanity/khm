@@ -34,6 +34,8 @@ jobs:
       - name: Install dependencies on Windows
         if: matrix.os == 'windows-latest'
         run: choco install -y mingw
+      - name: Install rust targets
+        run: rustup target add ${{ matrix.build_target }}
       - name: Build
         run: cargo build --target ${{ matrix.build_target }} --release
       - name: Strip binary on Linux and macOS
