@@ -43,7 +43,7 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: khm-${{ matrix.os }}
-        path: target/${{ matrix.target }}/release/khm*
+        path: target/${{ matrix.target }}/release/{khm,khm.exe}
         compression-level: 9
 
 
