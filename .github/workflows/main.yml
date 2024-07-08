@@ -88,11 +88,13 @@ jobs:
             platform_name: windows-amd64
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/download-artifact@v4
         name: Download ${{ matrix.platform_name }} artifact
         with:
           name: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}
           path: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}
+          
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
