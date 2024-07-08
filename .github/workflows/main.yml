@@ -19,10 +19,10 @@ jobs:
         include:
           - os: ubuntu-latest
             build_target: x86_64-unknown-linux-musl
+            platform_name: linux-amd64
           - os: windows-latest
             build_target: x86_64-pc-windows-msvc
-          - os: macos-latest
-            build_target: x86_64-apple-darwin
+            platform_name: windows-amd64
     permissions:
       contents: write
     steps:
@@ -37,28 +37,20 @@ jobs:
       - name: Install rust targets
         run: rustup target add ${{ matrix.build_target }}
         
-      - name: Build linux MUSL
+      - name: Build Linux MUSL
         if: matrix.os == 'ubuntu-latest'
         uses: gmiam/rust-musl-action@master
         with:
           args: cargo build --target $BUILD_TARGET --release
           
-      - name: Build MacOS and Windows
+      - name: Build Windows
         if: matrix.os != 'ubuntu-latest'
         run: cargo build --target ${{ matrix.build_target }} --release
-        
-      - name: Extract branch or tag name
-        id: extract_ref
-        run: |
-          REF_TYPE=$(echo "${GITHUB_REF}" | cut -d'/' -f2)
-          REF_NAME=$(echo "${GITHUB_REF}" | cut -d'/' -f3)
-          echo "{ref_type}={${REF_TYPE}}" >> $GITHUB_OUTPUT
-          echo "{ref_name}={${REF_NAME}}" >> $GITHUB_OUTPUT
           
       - uses: actions/upload-artifact@v4
         name: Upload artifact
         with:
-          name: ${{ env.BINARY_NAME }}_${{ steps.extract_ref.outputs.ref_name }}_${{ matrix.build_target }}
+          name: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}
           path: target/${{ matrix.build_target }}/release/${{ env.BINARY_NAME }}*
 
   release:
@@ -69,28 +61,26 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v3
-      - name: Extract branch or tag name
-        id: extract_ref
+      - name: Extract branch and tag name
         run: |
-          REF_TYPE=$(echo "${GITHUB_REF}" | cut -d'/' -f2)
-          REF_NAME=$(echo "${GITHUB_REF}" | cut -d'/' -f3)
-          echo "{ref_type}={${REF_TYPE}}" >> $GITHUB_OUTPUT
-          echo "{ref_name}={${REF_NAME}}" >> $GITHUB_OUTPUT
+          echo "REF_TYPE=$(echo ${GITHUB_REF} | cut -d'/' -f2)" >> $GITHUB_ENV
+          echo "REF_NAME=$(echo ${GITHUB_REF} | cut -d'/' -f3)" >> $GITHUB_ENV
       - uses: actions/download-artifact@v4
-        name: Download Linux artifact
+        name: Download Linux binary
+        id: download_linux_binary
         with:
-          name: ${{ env.BINARY_NAME }}_${{ steps.extract_ref.outputs.ref_name }}_x86_64-unknown-linux-musl
-          path: artifacts/linux/
+          name: ${{ env.BINARY_NAME }}_linux-amd64
+          path: ${{ env.BINARY_NAME }}_linux-amd64
       - uses: actions/download-artifact@v4
         name: Download Windows artifact
+        id: download_windows_binary
         with:
-          name: ${{ env.BINARY_NAME }}_${{ steps.extract_ref.outputs.ref_name }}_x86_64-pc-windows-msvc
-          path: artifacts/windows/
-      - uses: actions/download-artifact@v3
-        name: Download macOS artifact
-        with:
-          name: ${{ env.BINARY_NAME }}_${{ steps.extract_ref.outputs.ref_name }}_x86_64-apple-darwin
-          path: artifacts/macos/
+          name: ${{ env.BINARY_NAME }}_windows-amd64
+          path: ${{ env.BINARY_NAME }}_windows-amd64
+      - name: LS
+        run: |
+          ls -lah
+          
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -107,8 +97,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/linux/${{ env.BINARY_NAME }}
-          asset_name: ${{ env.BINARY_NAME }}-linux
+          asset_path: ${{ env.BINARY_NAME }}_linux-amd64
+          asset_name: ${{ env.BINARY_NAME }}_linux-amd64
           asset_content_type: application/octet-stream
       - name: Upload Windows Release Asset
         uses: actions/upload-release-asset@v1
@@ -116,15 +106,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/windows/${{ env.BINARY_NAME }}.exe
-          asset_name: ${{ env.BINARY_NAME }}-windows.exe
-          asset_content_type: application/octet-stream
-      - name: Upload macOS Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/macos/${{ env.BINARY_NAME }}
-          asset_name: ${{ env.BINARY_NAME }}-macos
+          asset_path: ${{ env.BINARY_NAME }}_windows-amd64
+          asset_name: ${{ env.BINARY_NAME }}_windows-amd64
           asset_content_type: application/octet-stream
