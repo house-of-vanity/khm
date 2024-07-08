@@ -3,7 +3,7 @@ mod server;
 
 use clap::Parser;
 use env_logger;
-use log::{info, error};
+use log::{error, info};
 
 /// This application manages SSH keys and flows, either as a server or client.
 /// In server mode, it stores keys and flows in a PostgreSQL database.
@@ -113,7 +113,6 @@ async fn main() -> std::io::Result<()> {
     info!("Starting SSH Key Manager");
 
     let args = Args::parse();
-
 
     if args.server {
         info!("Running in server mode");

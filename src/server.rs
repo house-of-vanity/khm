@@ -1,5 +1,5 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-use log::{info, error};
+use log::{error, info};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,7 +23,8 @@ pub type Flows = Arc<Mutex<Vec<Flow>>>;
 pub fn is_valid_ssh_key(key: &str) -> bool {
     let rsa_re = Regex::new(r"^ssh-rsa AAAA[0-9A-Za-z+/]+[=]{0,3}( .+)?$").unwrap();
     let dsa_re = Regex::new(r"^ssh-dss AAAA[0-9A-Za-z+/]+[=]{0,3}( .+)?$").unwrap();
-    let ecdsa_re = Regex::new(r"^ecdsa-sha2-nistp(256|384|521) AAAA[0-9A-Za-z+/]+[=]{0,3}( .+)?$").unwrap();
+    let ecdsa_re =
+        Regex::new(r"^ecdsa-sha2-nistp(256|384|521) AAAA[0-9A-Za-z+/]+[=]{0,3}( .+)?$").unwrap();
     let ed25519_re = Regex::new(r"^ssh-ed25519 AAAA[0-9A-Za-z+/]+[=]{0,3}( .+)?$").unwrap();
 
     rsa_re.is_match(key)
@@ -246,7 +247,7 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
             .route("/{flow_id}/keys", web::get().to(get_keys))
             .route("/{flow_id}/keys", web::post().to(add_keys))
     })
-        .bind((args.ip.as_str(), args.port))?
-        .run()
-        .await
+    .bind((args.ip.as_str(), args.port))?
+    .run()
+    .await
 }

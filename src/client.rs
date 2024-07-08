@@ -1,9 +1,9 @@
+use log::{error, info};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-use log::{info, error};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct SshKey {
@@ -26,7 +26,7 @@ fn read_known_hosts(file_path: &str) -> io::Result<Vec<SshKey>> {
                     let public_key = parts[1..].join(" ");
                     keys.push(SshKey { server, public_key });
                 }
-            },
+            }
             Err(e) => {
                 error!("Error reading line from known_hosts file: {}", e);
             }
