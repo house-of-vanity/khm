@@ -147,4 +147,4 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ultradesu/${{ env.BINARY_NAME }}:latest,ultradesu/${{ env.BINARY_NAME }}:${{ steps.vars.outputs.tag }}
+          tags: ultradesu/${{ env.BINARY_NAME }}:latest,ultradesu/${{ env.BINARY_NAME }}:${{ steps.get_tag.outputs.tag }}
