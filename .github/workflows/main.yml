@@ -1,82 +1,116 @@
-name: Build and Publish Rust
+name: Rust static build and publish
 
 on:
   push:
     tags:
-      - 'v*.*.*'  # Запуск при создании новой тэгированной версии
-  pull_request:
-    branches:
-      - main
+      - 'v*.*.*'
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: khm
 
 jobs:
   build:
+    name: Build static binary
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            build_target: x86_64-unknown-linux-musl
           - os: windows-latest
-            target: x86_64-pc-windows-msvc
+            build_target: x86_64-pc-windows-msvc
           - os: macos-latest
-            target: x86_64-apple-darwin
-
+            build_target: x86_64-apple-darwin
+    permissions:
+      contents: write
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mbrobbel/rustfmt-check@master
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install dependencies on Windows
+        if: matrix.os == 'windows-latest'
+        run: choco install -y mingw
+      - name: Build
+        run: cargo build --target ${{ matrix.build_target }} --release
+      - name: Strip binary on Linux and macOS
+        if: matrix.os != 'windows-latest'
+        run: strip target/${{ matrix.build_target }}/release/${{ env.BINARY_NAME }}
+      - name: Strip binary on Windows
+        if: matrix.os == 'windows-latest'
+        run: C:\\tools\\mingw64\\bin\\strip.exe target\\${{ matrix.build_target }}\\release\\${{ env.BINARY_NAME }}.exe
+      - name: Get version
+        run: echo "VERSION=$(grep -P '^version = \"\\d+\\.\\d+\\.\\d+\"' Cargo.toml | awk -F '\"' '{print $2}')" >> $GITHUB_ENV
+      - name: Show version
+        run: echo ${{ env.VERSION }}
+      - uses: actions/upload-artifact@v3
+        name: Upload artifact
+        with:
+          name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}_${{ matrix.build_target }}
+          path: target/${{ matrix.build_target }}/release/${{ env.BINARY_NAME }}*
 
-    - name: Set up Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        profile: minimal
-        override: true
-
-    - name: Install target
-      run: rustup target add ${{ matrix.target }}
-
-    - name: Build project
-      run: cargo build --release --target ${{ matrix.target }}
-
-    - name: Upload binaries
-      uses: actions/upload-artifact@v4
-      with:
-        name: khm-${{ matrix.os }}
-        if-no-files-found: ignore
-        path: |
-          target/${{ matrix.target }}/release/khm.exe
-          target/${{ matrix.target }}/release/khm
-
-  publish:
+  release:
+    name: Making New Release ^_^
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Download build artifacts
-        uses: actions/download-artifact@v2
+      - uses: actions/checkout@v3
+      - name: Get version
+        run: echo "VERSION=$(grep -P '^version = \"\\d+\\.\\d+\\.\\d+\"' Cargo.toml | awk -F '\"' '{print $2}')" >> $GITHUB_ENV
+      - uses: actions/download-artifact@v3
+        name: Download Linux artifact
         with:
-          name: khm-ubuntu-latest
-
+          name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}_x86_64-unknown-linux-musl
+          path: artifacts/linux/
+      - uses: actions/download-artifact@v3
+        name: Download Windows artifact
+        with:
+          name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}_x86_64-pc-windows-msvc
+          path: artifacts/windows/
+      - uses: actions/download-artifact@v3
+        name: Download macOS artifact
+        with:
+          name: ${{ env.BINARY_NAME }}_${{ env.VERSION }}_x86_64-apple-darwin
+          path: artifacts/macos/
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref }}
           release_name: Release ${{ github.ref }}
-          body: |
-             Publishing prebuilt MacOS, Linux and Windows binaries.
           draft: false
           prerelease: false
-
-      - name: Upload Release
+      - name: Upload Linux Release Asset
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          for file in khm-*; do
-            gh release upload ${{ github.ref }} "$file"
-          done
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/linux/${{ env.BINARY_NAME }}
+          asset_name: ${{ env.BINARY_NAME }}-linux
+          asset_content_type: application/octet-stream
+      - name: Upload Windows Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/windows/${{ env.BINARY_NAME }}.exe
+          asset_name: ${{ env.BINARY_NAME }}-windows.exe
+          asset_content_type: application/octet-stream
+      - name: Upload macOS Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/macos/${{ env.BINARY_NAME }}
+          asset_name: ${{ env.BINARY_NAME }}-macos
+          asset_content_type: application/octet-stream
