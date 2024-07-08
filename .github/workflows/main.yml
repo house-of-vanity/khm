@@ -57,6 +57,8 @@ jobs:
     name: Create and upload release
     needs: build
     runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
     permissions:
       contents: write
     steps:
@@ -95,14 +97,12 @@ jobs:
         with:
           name: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}
           path: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}
-      - name: List downloaded binaries
-        run: ls -lah ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ needs.release.outputs.create_release.upload_url }}
+          upload_url: ${{ needs.release.outputs.upload_url }}
           asset_path: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}/${{ env.BINARY_NAME }}${{ matrix.platform_name == 'windows-amd64' && '.exe' || '' }}
           asset_name: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}${{ matrix.platform_name == 'windows-amd64' && '.exe' || '' }}
           asset_content_type: application/octet-stream
