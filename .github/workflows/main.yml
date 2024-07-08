@@ -63,10 +63,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v3
-      - name: Extract branch and tag name
-        run: |
-          echo "REF_TYPE=$(echo ${GITHUB_REF} | cut -d'/' -f2)" >> $GITHUB_ENV
-          echo "REF_NAME=$(echo ${GITHUB_REF} | cut -d'/' -f3)" >> $GITHUB_ENV
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
