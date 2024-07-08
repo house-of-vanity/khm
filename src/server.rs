@@ -1,5 +1,5 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-use log;
+use log::{info, error};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,8 +23,7 @@ pub type Flows = Arc<Mutex<Vec<Flow>>>;
 pub fn is_valid_ssh_key(key: &str) -> bool {
     let rsa_re = Regex::new(r"^ssh-rsa AAAA[0-9A-Za-z+/]+[=]{0,3}( .+)?$").unwrap();
     let dsa_re = Regex::new(r"^ssh-dss AAAA[0-9A-Za-z+/]+[=]{0,3}( .+)?$").unwrap();
-    let ecdsa_re =
-        Regex::new(r"^ecdsa-sha2-nistp(256|384|521) AAAA[0-9A-Za-z+/]+[=]{0,3}( .+)?$").unwrap();
+    let ecdsa_re = Regex::new(r"^ecdsa-sha2-nistp(256|384|521) AAAA[0-9A-Za-z+/]+[=]{0,3}( .+)?$").unwrap();
     let ed25519_re = Regex::new(r"^ssh-ed25519 AAAA[0-9A-Za-z+/]+[=]{0,3}( .+)?$").unwrap();
 
     rsa_re.is_match(key)
@@ -51,12 +50,14 @@ pub async fn insert_key_if_not_exists(
                 &[&row.get::<_, i32>(0)],
             )
             .await?;
+        info!("Updated existing key for server: {}", key.server);
         Ok(row.get(0))
     } else {
         let row = client.query_one(
             "INSERT INTO public.keys (host, key, updated) VALUES ($1, $2, NOW()) RETURNING key_id",
             &[&key.server, &key.public_key]
         ).await?;
+        info!("Inserted new key for server: {}", key.server);
         Ok(row.get(0))
     }
 }
@@ -72,6 +73,7 @@ pub async fn insert_flow_key(
             &[&flow_name, &key_id],
         )
         .await?;
+    info!("Inserted key_id {} into flow: {}", key_id, flow_name);
     Ok(())
 }
 
@@ -106,6 +108,7 @@ pub async fn get_keys_from_db(client: &Client) -> Result<Vec<Flow>, tokio_postgr
         }
     }
 
+    info!("Retrieved {} flows from database", flows_map.len());
     Ok(flows_map.into_values().collect())
 }
 
@@ -116,14 +119,17 @@ pub async fn get_keys(
 ) -> impl Responder {
     let flow_id_str = flow_id.into_inner();
     if !allowed_flows.contains(&flow_id_str) {
+        error!("Flow ID not allowed: {}", flow_id_str);
         return HttpResponse::Forbidden().body("Flow ID not allowed");
     }
 
     let flows = flows.lock().unwrap();
     if let Some(flow) = flows.iter().find(|flow| flow.name == flow_id_str) {
         let servers: Vec<&SshKey> = flow.servers.iter().collect();
+        info!("Returning {} keys for flow: {}", servers.len(), flow_id_str);
         HttpResponse::Ok().json(servers)
     } else {
+        error!("Flow ID not found: {}", flow_id_str);
         HttpResponse::NotFound().body("Flow ID not found")
     }
 }
@@ -137,11 +143,13 @@ pub async fn add_keys(
 ) -> impl Responder {
     let flow_id_str = flow_id.into_inner();
     if !allowed_flows.contains(&flow_id_str) {
+        error!("Flow ID not allowed: {}", flow_id_str);
         return HttpResponse::Forbidden().body("Flow ID not allowed");
     }
 
     for new_key in new_keys.iter() {
         if !is_valid_ssh_key(&new_key.public_key) {
+            error!("Invalid SSH key format for server: {}", new_key.server);
             return HttpResponse::BadRequest().body(format!(
                 "Invalid SSH key format for server: {}",
                 new_key.server
@@ -151,31 +159,38 @@ pub async fn add_keys(
         match insert_key_if_not_exists(&db_client, new_key).await {
             Ok(key_id) => {
                 if let Err(e) = insert_flow_key(&db_client, &flow_id_str, key_id).await {
-                    log::error!("Failed to insert flow key into database: {}", e);
+                    error!("Failed to insert flow key into database: {}", e);
                     return HttpResponse::InternalServerError()
                         .body("Failed to insert flow key into database");
                 }
             }
             Err(e) => {
-                log::error!("Failed to insert key into database: {}", e);
+                error!("Failed to insert key into database: {}", e);
                 return HttpResponse::InternalServerError()
                     .body("Failed to insert key into database");
             }
         }
     }
 
-    // Refresh the flows data from the database
-    let updated_flows = get_keys_from_db(&db_client)
-        .await
-        .unwrap_or_else(|_| Vec::new());
+    let updated_flows = match get_keys_from_db(&db_client).await {
+        Ok(flows) => flows,
+        Err(e) => {
+            error!("Failed to get updated flows from database: {}", e);
+            return HttpResponse::InternalServerError()
+                .body("Failed to refresh flows from database");
+        }
+    };
+
     let mut flows_guard = flows.lock().unwrap();
     *flows_guard = updated_flows;
 
     let updated_flow = flows_guard.iter().find(|flow| flow.name == flow_id_str);
     if let Some(flow) = updated_flow {
         let servers: Vec<&SshKey> = flow.servers.iter().collect();
+        info!("Updated flow: {} with {} keys", flow_id_str, servers.len());
         HttpResponse::Ok().json(servers)
     } else {
+        error!("Flow ID not found after update: {}", flow_id_str);
         HttpResponse::NotFound().body("Flow ID not found")
     }
 }
@@ -197,13 +212,17 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
     // Spawn a new thread to run the database connection
     tokio::spawn(async move {
         if let Err(e) = connection.await {
-            eprintln!("Connection error: {}", e);
+            error!("Connection error: {}", e);
         }
     });
 
-    let mut initial_flows = get_keys_from_db(&db_client)
-        .await
-        .unwrap_or_else(|_| Vec::new());
+    let mut initial_flows = match get_keys_from_db(&db_client).await {
+        Ok(flows) => flows,
+        Err(e) => {
+            error!("Failed to get initial flows from database: {}", e);
+            Vec::new()
+        }
+    };
 
     // Ensure all allowed flows are initialized
     for allowed_flow in &args.flows {
@@ -218,6 +237,7 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
     let flows: Flows = Arc::new(Mutex::new(initial_flows));
     let allowed_flows = web::Data::new(args.flows);
 
+    info!("Starting HTTP server on {}:{}", args.ip, args.port);
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(flows.clone()))
@@ -226,7 +246,7 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
             .route("/{flow_id}/keys", web::get().to(get_keys))
             .route("/{flow_id}/keys", web::post().to(add_keys))
     })
-    .bind((args.ip.as_str(), args.port))?
-    .run()
-    .await
+        .bind((args.ip.as_str(), args.port))?
+        .run()
+        .await
 }

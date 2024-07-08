@@ -3,6 +3,7 @@ mod server;
 
 use clap::Parser;
 use env_logger;
+use log::{info, error};
 
 /// This application manages SSH keys and flows, either as a server or client.
 /// In server mode, it stores keys and flows in a PostgreSQL database.
@@ -19,7 +20,7 @@ use env_logger;
     khm --server --ip 0.0.0.0 --port 1337 --db-host psql.psql.svc --db-name khm --db-user admin --db-password <SECRET> --flows work,home\n\
     \n\
     Running in client mode to send diff and sync ~/.ssh/known_hosts with remote flow in place:\n\
-    khm --host http://kh.example.com:8080 --known_hosts ~/.ssh/known_hosts --in-place\n\
+    khm --host http://kh.example.com:8080 --known-hosts ~/.ssh/known_hosts --in-place\n\
     \n\
     "
 )]
@@ -109,12 +110,23 @@ struct Args {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
+    info!("Starting SSH Key Manager");
 
     let args = Args::parse();
 
+
     if args.server {
-        server::run_server(args).await
+        info!("Running in server mode");
+        if let Err(e) = server::run_server(args).await {
+            error!("Failed to run server: {}", e);
+        }
     } else {
-        client::run_client(args).await
+        info!("Running in client mode");
+        if let Err(e) = client::run_client(args).await {
+            error!("Failed to run client: {}", e);
+        }
     }
+
+    info!("Application has exited");
+    Ok(())
 }
