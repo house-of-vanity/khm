@@ -97,7 +97,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ env.BINARY_NAME }}_linux-amd64
+          asset_path: ${{ env.BINARY_NAME }}_linux-amd64/${{ env.BINARY_NAME }}
           asset_name: ${{ env.BINARY_NAME }}_linux-amd64
           asset_content_type: application/octet-stream
       - name: Upload Windows Release Asset
@@ -106,6 +106,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ env.BINARY_NAME }}_windows-amd64
+          asset_path: ${{ env.BINARY_NAME }}_windows-amd64/${{ env.BINARY_NAME }}.exe
           asset_name: ${{ env.BINARY_NAME }}_windows-amd64
           asset_content_type: application/octet-stream
