@@ -1,4 +1,4 @@
-name: Rust CI
+name: Build and Publish Rust
 
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     - name: Set up Rust
       uses: actions-rs/toolchain@v1
@@ -46,4 +46,22 @@ jobs:
         path: target/${{ matrix.target }}/release/{khm,khm.exe}
         compression-level: 9
 
+  publish:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: |
+             Publishing prebuilt MacOS, Linux and Windows binaries.
+          draft: false
+          prerelease: false
 
