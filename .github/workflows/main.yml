@@ -92,7 +92,7 @@ jobs:
           draft: false
           prerelease: false
       - name: Upload Linux Release Asset
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -101,7 +101,7 @@ jobs:
           asset_name: ${{ env.BINARY_NAME }}_linux-amd64
           asset_content_type: application/octet-stream
       - name: Upload Windows Release Asset
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
