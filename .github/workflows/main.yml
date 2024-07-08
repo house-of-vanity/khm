@@ -50,7 +50,6 @@ jobs:
 
   publish:
     needs: build
-    name: Create Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -58,6 +57,8 @@ jobs:
         
       - name: Download build artifacts
         uses: actions/download-artifact@v2
+        with:
+          name: khm-ubuntu-latest
 
       - name: Create Release
         id: create_release
@@ -71,9 +72,11 @@ jobs:
              Publishing prebuilt MacOS, Linux and Windows binaries.
           draft: false
           prerelease: false
-      - uses: actions/checkout@v3
+
       - name: Upload Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run:
-          gh release upload ${{ github.ref }} khm-*
+        run: |
+          for file in khm-*; do
+            gh release upload ${{ github.ref }} "$file"
+          done
