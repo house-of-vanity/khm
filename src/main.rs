@@ -12,7 +12,7 @@ use log::{error, info};
 #[command(
     author = env!("CARGO_PKG_AUTHORS"),
     version = env!("CARGO_PKG_VERSION"),
-    about = "SSH Key Manager",
+    about = "SSH Host Key Manager",
     long_about = None,
     after_help = "Examples:\n\
     \n\
