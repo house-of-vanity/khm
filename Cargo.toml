@@ -2,7 +2,7 @@
 name = "khm"
 version = "0.2.0"
 edition = "2021"
-authors = ["AB <ab@hexor.cy>"]
+authors = ["AB <ab@hexor.cy>", "ChatGPT-4o"]
 
 [dependencies]
 actix-web = "4"
