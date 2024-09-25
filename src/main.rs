@@ -20,11 +20,26 @@ use log::{error, info};
     khm --server --ip 0.0.0.0 --port 1337 --db-host psql.psql.svc --db-name khm --db-user admin --db-password <SECRET> --flows work,home\n\
     \n\
     Running in client mode to send diff and sync ~/.ssh/known_hosts with remote flow in place:\n\
-    khm --host http://kh.example.com:8080 --known-hosts ~/.ssh/known_hosts --in-place\n\
+    khm --host https://khm.example.com/default/keys --known-hosts ~/.ssh/known_hosts --in-place\n\
     \n\
     "
 )]
 struct Args {
+    /// Run in server mode (default: false)
+    #[arg(long, help = "Run in server mode")]
+    server: bool,
+
+    /// Update the known_hosts file with keys from the server after sending keys (default: false)
+    #[arg(
+        long,
+        help = "Server mode: Sync the known_hosts file with keys from the server"
+    )]
+    in_place: bool,
+
+    /// Comma-separated list of flows to manage (default: default)
+    #[arg(long, default_value = "default", value_parser, num_args = 1.., value_delimiter = ',', help = "Server mode: Comma-separated list of flows to manage")]
+    flows: Vec<String>,
+
     /// IP address to bind the server or client to (default: 127.0.0.1)
     #[arg(
         short,
@@ -79,13 +94,9 @@ struct Args {
     #[arg(
         long,
         required_if_eq("server", "false"),
-        help = "Client mode: Host address of the server to connect to"
+        help = "Client mode: Full host address of the server to connect to. Like https://khm.example.com/flow_name/keys"
     )]
     host: Option<String>,
-
-    /// Run in server mode (default: false)
-    #[arg(long, help = "Run in server mode")]
-    server: bool,
 
     /// Path to the known_hosts file (default: ~/.ssh/known_hosts)
     #[arg(
@@ -94,17 +105,6 @@ struct Args {
         help = "Client mode: Path to the known_hosts file"
     )]
     known_hosts: String,
-
-    /// Update the known_hosts file with keys from the server after sending keys (default: false)
-    #[arg(
-        long,
-        help = "Server mode: Sync the known_hosts file with keys from the server"
-    )]
-    in_place: bool,
-
-    /// Comma-separated list of flows to manage (default: default)
-    #[arg(long, default_value = "default", value_parser, num_args = 1.., value_delimiter = ',', help = "Comma-separated list of flows to manage")]
-    flows: Vec<String>,
 }
 
 #[actix_web::main]
