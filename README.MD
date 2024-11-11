@@ -29,17 +29,17 @@ khm --host http://khm.example.com:8080/<FLOW_NAME>/ --known-hosts ~/.ssh/known_h
 
 ### Arguments
 Options:
--      `--server`                     Run in server mode
--      `--in-place`                   Server mode: Sync the known_hosts file with keys from the server
--      `--flows <FLOWS>...`           Server mode: Comma-separated list of flows to manage [default: default]
--  `-i, --ip <IP>`                    Server mode: IP address to bind the server to [default: 127.0.0.1]
--  `-p, --port <PORT>`                Server mode: Port to bind the server to [default: 8080]
--      `--db-host <DB_HOST>`          Server mode: Hostname or IP address of the PostgreSQL database [default: 127.0.0.1]
--      `--db-name <DB_NAME>`          Server mode: Name of the PostgreSQL database [default: khm]
--      `--db-user <DB_USER>`          Server mode: Username for the PostgreSQL database
--      `--db-password <DB_PASSWORD>`  Server mode: Password for the PostgreSQL database
--      `--host <HOST>`                Client mode: Full host address of the server to connect to. Like `https://khm.example.com/<FLOW_NAME>`
--      `--known-hosts <KNOWN_HOSTS>`  Client mode: Path to the known_hosts file [default: ~/.ssh/known_hosts]
+- `--server` Run in server mode
+- `--in-place` Server mode: Sync the known_hosts file with keys from the server
+- `--flows <FLOWS>...` Server mode: Comma-separated list of flows to manage [default: default]
+- `-i, --ip <IP>` Server mode: IP address to bind the server to [default: 127.0.0.1]
+- `-p, --port <PORT>` Server mode: Port to bind the server to [default: 8080]
+- `--db-host <DB_HOST>` Server mode: Hostname or IP address of the PostgreSQL database [default: 127.0.0.1]
+- `--db-name <DB_NAME>` Server mode: Name of the PostgreSQL database [default: khm]
+- `--db-user <DB_USER>` Server mode: Username for the PostgreSQL database
+- `--db-password <DB_PASSWORD>` Server mode: Password for the PostgreSQL database
+- `--host <HOST>` Client mode: Full host address of the server to connect to. Like `https://khm.example.com/<FLOW_NAME>`
+- `--known-hosts <KNOWN_HOSTS>` Client mode: Path to the known_hosts file [default: ~/.ssh/known_hosts]
 
 
 ## Installation
