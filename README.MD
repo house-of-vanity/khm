@@ -24,21 +24,23 @@ khm --server --ip 127.0.0.1 --port 8080 --db-host 127.0.0.1 --db-name khm --db-u
 To run the application in client mode, use the following command:
 
 ```bash
-khm --host http://khm.example.com:8080 --known-hosts ~/.ssh/known_hosts --in-place
+khm --host http://khm.example.com:8080/<FLOW_NAME>/ --known-hosts ~/.ssh/known_hosts --in-place
 ```
 
 ### Arguments
-- `--server`: Run in server mode (default: false).
-- `--ip`: IP address to bind the server or client to (default: 127.0.0.1).
-- `--port`: Port to bind the server or client to (default: 8080).
-- `--db-host`: Hostname or IP address of the PostgreSQL database (default: 127.0.0.1).
-- `--db-name`: Name of the PostgreSQL database (default: khm).
-- `--db-user`: Username for the PostgreSQL database (required in server mode).
-- `--db-password`: Password for the PostgreSQL database (required in server mode).
-- `--host`: Host address of the server to connect to in client mode (required in client mode).
-- `--known-hosts`: Path to the `known_hosts` file (default: ~/.ssh/known_hosts).
-- `--in-place`: Update the `known_hosts` file with keys from the server after sending keys (default: false).
-- `--flows`: Comma-separated list of flows to manage (default: default).
+Options:
+-      `--server`                     Run in server mode
+-      `--in-place`                   Server mode: Sync the known_hosts file with keys from the server
+-      `--flows <FLOWS>...`           Server mode: Comma-separated list of flows to manage [default: default]
+-  `-i, --ip <IP>`                    Server mode: IP address to bind the server to [default: 127.0.0.1]
+-  `-p, --port <PORT>`                Server mode: Port to bind the server to [default: 8080]
+-      `--db-host <DB_HOST>`          Server mode: Hostname or IP address of the PostgreSQL database [default: 127.0.0.1]
+-      `--db-name <DB_NAME>`          Server mode: Name of the PostgreSQL database [default: khm]
+-      `--db-user <DB_USER>`          Server mode: Username for the PostgreSQL database
+-      `--db-password <DB_PASSWORD>`  Server mode: Password for the PostgreSQL database
+-      `--host <HOST>`                Client mode: Full host address of the server to connect to. Like `https://khm.example.com/<FLOW_NAME>`
+-      `--known-hosts <KNOWN_HOSTS>`  Client mode: Path to the known_hosts file [default: ~/.ssh/known_hosts]
+
 
 ## Installation
 

@@ -19,8 +19,8 @@ use log::{error, info};
     Running in server mode:\n\
     khm --server --ip 0.0.0.0 --port 1337 --db-host psql.psql.svc --db-name khm --db-user admin --db-password <SECRET> --flows work,home\n\
     \n\
-    Running in client mode to send diff and sync ~/.ssh/known_hosts with remote flow in place:\n\
-    khm --host https://khm.example.com/default/keys --known-hosts ~/.ssh/known_hosts --in-place\n\
+    Running in client mode to send diff and sync ~/.ssh/known_hosts with remote flow `work` in place:\n\
+    khm --host https://khm.example.com/work --known-hosts ~/.ssh/known_hosts --in-place\n\
     \n\
     "
 )]
@@ -94,7 +94,7 @@ struct Args {
     #[arg(
         long,
         required_if_eq("server", "false"),
-        help = "Client mode: Full host address of the server to connect to. Like https://khm.example.com/flow_name/keys"
+        help = "Client mode: Full host address of the server to connect to. Like https://khm.example.com/<FLOW_NAME>"
     )]
     host: Option<String>,
 
