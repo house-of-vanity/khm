@@ -1,4 +1,6 @@
+use base64::{engine::general_purpose, Engine as _};
 use log::{error, info};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -48,10 +50,39 @@ fn write_known_hosts(file_path: &str, keys: &[SshKey]) -> io::Result<()> {
     Ok(())
 }
 
-async fn send_keys_to_server(host: &str, keys: Vec<SshKey>) -> Result<(), reqwest::Error> {
+async fn send_keys_to_server(
+    host: &str,
+    keys: Vec<SshKey>,
+    auth_string: &str,
+) -> Result<(), reqwest::Error> {
     let client = Client::new();
     let url = format!("{}/keys", host);
-    let response = client.post(&url).json(&keys).send().await?;
+    info!("URL: {} ", url);
+
+    let mut headers = HeaderMap::new();
+
+    if !auth_string.is_empty() {
+        let parts: Vec<&str> = auth_string.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            let username = parts[0];
+            let password = parts[1];
+
+            let auth_header_value = format!("{}:{}", username, password);
+            let encoded_auth = general_purpose::STANDARD.encode(auth_header_value);
+            let auth_header = format!("Basic {}", encoded_auth);
+
+            headers.insert(AUTHORIZATION, HeaderValue::from_str(&auth_header).unwrap());
+        } else {
+            error!("Invalid auth string format. Expected 'username:password'");
+        }
+    }
+
+    let response = client
+        .post(&url)
+        .headers(headers)
+        .json(&keys)
+        .send()
+        .await?;
 
     if response.status().is_success() {
         info!("Keys successfully sent to server.");
@@ -65,22 +96,38 @@ async fn send_keys_to_server(host: &str, keys: Vec<SshKey>) -> Result<(), reqwes
     Ok(())
 }
 
-async fn get_keys_from_server(host: &str) -> Result<Vec<SshKey>, reqwest::Error> {
+async fn get_keys_from_server(
+    host: &str,
+    auth_string: &str,
+) -> Result<Vec<SshKey>, reqwest::Error> {
     let client = Client::new();
     let url = format!("{}/keys", host);
-    let response = client.get(&url).send().await?;
 
-    if response.status().is_success() {
-        let keys: Vec<SshKey> = response.json().await?;
-        info!("Received {} keys from server", keys.len());
-        Ok(keys)
-    } else {
-        error!(
-            "Failed to get keys from server. Status: {}",
-            response.status()
-        );
-        Ok(vec![])
+    let mut headers = HeaderMap::new();
+
+    if !auth_string.is_empty() {
+        let parts: Vec<&str> = auth_string.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            let username = parts[0];
+            let password = parts[1];
+
+            let auth_header_value = format!("{}:{}", username, password);
+            let encoded_auth = general_purpose::STANDARD.encode(auth_header_value);
+            let auth_header = format!("Basic {}", encoded_auth);
+
+            headers.insert(AUTHORIZATION, HeaderValue::from_str(&auth_header).unwrap());
+        } else {
+            error!("Invalid auth string format. Expected 'username:password'");
+        }
     }
+
+    let response = client.get(&url).headers(headers).send().await?;
+
+    let response = response.error_for_status()?;
+
+    let keys: Vec<SshKey> = response.json().await?;
+    info!("Received {} keys from server", keys.len());
+    Ok(keys)
 }
 
 pub async fn run_client(args: crate::Args) -> std::io::Result<()> {
@@ -89,13 +136,13 @@ pub async fn run_client(args: crate::Args) -> std::io::Result<()> {
 
     let host = args.host.expect("host is required in client mode");
     info!("Client mode: Sending keys to server at {}", host);
-    send_keys_to_server(&host, keys)
+    send_keys_to_server(&host, keys, &args.basic_auth)
         .await
         .expect("Failed to send keys to server");
 
     if args.in_place {
         info!("Client mode: In-place update is enabled. Fetching keys from server.");
-        let server_keys = get_keys_from_server(&host)
+        let server_keys = get_keys_from_server(&host, &args.basic_auth)
             .await
             .expect("Failed to get keys from server");
 

@@ -105,6 +105,10 @@ struct Args {
         help = "Client mode: Path to the known_hosts file"
     )]
     known_hosts: String,
+
+    /// Basic auth string for client mode. Format: user:pass
+    #[arg(long, default_value = "", help = "Client mode: Basic Auth credentials")]
+    basic_auth: String,
 }
 
 #[actix_web::main]
