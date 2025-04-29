@@ -67,11 +67,11 @@ jobs:
           args: cargo build --target ${{ matrix.build_target }} --release
           
       - name: Build MacOS
-        if: matrix.os != 'macos-latest'
+        if: matrix.os == 'macos-latest'
         run: cargo build --target ${{ matrix.build_target }} --release
           
       - name: Build Windows
-        if: matrix.os != 'ubuntu-latest'
+        if: matrix.os == 'windows-latest'
         run: cargo build --target ${{ matrix.build_target }} --release
           
       - name: Upload artifact
