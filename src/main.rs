@@ -1,4 +1,5 @@
 mod client;
+mod db;
 mod server;
 
 use clap::Parser;

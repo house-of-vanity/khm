@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio_postgres::{Client, NoTls};
 
+use crate::db;
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SshKey {
     pub server: String,
@@ -148,6 +150,8 @@ pub async fn add_keys(
         return HttpResponse::Forbidden().body("Flow ID not allowed");
     }
 
+    // Проверяем формат SSH ключей
+    let mut valid_keys = Vec::new();
     for new_key in new_keys.iter() {
         if !is_valid_ssh_key(&new_key.public_key) {
             error!("Invalid SSH key format for server: {}", new_key.server);
@@ -156,23 +160,42 @@ pub async fn add_keys(
                 new_key.server
             ));
         }
-
-        match insert_key_if_not_exists(&db_client, new_key).await {
-            Ok(key_id) => {
-                if let Err(e) = insert_flow_key(&db_client, &flow_id_str, key_id).await {
-                    error!("Failed to insert flow key into database: {}", e);
-                    return HttpResponse::InternalServerError()
-                        .body("Failed to insert flow key into database");
-                }
-            }
-            Err(e) => {
-                error!("Failed to insert key into database: {}", e);
-                return HttpResponse::InternalServerError()
-                    .body("Failed to insert key into database");
-            }
-        }
+        valid_keys.push(new_key.clone());
     }
 
+    info!("Processing batch of {} keys for flow: {}", valid_keys.len(), flow_id_str);
+    
+    // Батчевая вставка ключей с получением статистики
+    let key_stats = match crate::db::batch_insert_keys(&db_client, &valid_keys).await {
+        Ok(stats) => stats,
+        Err(e) => {
+            error!("Failed to batch insert keys into database: {}", e);
+            return HttpResponse::InternalServerError()
+                .body("Failed to batch insert keys into database");
+        }
+    };
+
+    // Если нет новых ключей, нет необходимости обновлять связи с flow
+    if key_stats.inserted > 0 {
+        // Извлекаем только ID ключей из статистики
+        let key_ids: Vec<i32> = key_stats.key_id_map
+            .iter()
+            .map(|(_, id)| *id)
+            .collect();
+        
+        // Батчевая вставка связей ключей с flow
+        if let Err(e) = crate::db::batch_insert_flow_keys(&db_client, &flow_id_str, &key_ids).await {
+            error!("Failed to batch insert flow keys into database: {}", e);
+            return HttpResponse::InternalServerError()
+                .body("Failed to batch insert flow keys into database");
+        }
+        
+        info!("Added flow associations for {} keys in flow '{}'", key_ids.len(), flow_id_str);
+    } else {
+        info!("No new keys to associate with flow '{}'", flow_id_str);
+    }
+
+    // Получаем обновленные данные
     let updated_flows = match get_keys_from_db(&db_client).await {
         Ok(flows) => flows,
         Err(e) => {
@@ -188,8 +211,16 @@ pub async fn add_keys(
     let updated_flow = flows_guard.iter().find(|flow| flow.name == flow_id_str);
     if let Some(flow) = updated_flow {
         let servers: Vec<&SshKey> = flow.servers.iter().collect();
-        info!("Updated flow: {} with {} keys", flow_id_str, servers.len());
-        HttpResponse::Ok().json(servers)
+        info!("Keys summary for flow '{}': total received={}, new={}, unchanged={}, total in flow={}",
+              flow_id_str, key_stats.total, key_stats.inserted, key_stats.unchanged, servers.len());
+        
+        // Добавляем статистику в HTTP заголовки ответа
+        let mut response = HttpResponse::Ok();
+        response.append_header(("X-Keys-Total", key_stats.total.to_string()));
+        response.append_header(("X-Keys-New", key_stats.inserted.to_string()));
+        response.append_header(("X-Keys-Unchanged", key_stats.unchanged.to_string()));
+        
+        response.json(servers)
     } else {
         error!("Flow ID not found after update: {}", flow_id_str);
         HttpResponse::NotFound().body("Flow ID not found")
@@ -207,7 +238,17 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
         args.db_host, db_user, db_password, args.db_name
     );
 
-    let (db_client, connection) = tokio_postgres::connect(&db_conn_str, NoTls).await.unwrap();
+    info!("Connecting to database at {}", args.db_host);
+    let (db_client, connection) = match tokio_postgres::connect(&db_conn_str, NoTls).await {
+        Ok((client, conn)) => (client, conn),
+        Err(e) => {
+            error!("Failed to connect to the database: {}", e);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                format!("Database connection error: {}", e),
+            ));
+        }
+    };
     let db_client = Arc::new(db_client);
 
     // Spawn a new thread to run the database connection
@@ -216,6 +257,15 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
             error!("Connection error: {}", e);
         }
     });
+
+    // Initialize database schema if needed
+    if let Err(e) = db::initialize_db_schema(&db_client).await {
+        error!("Failed to initialize database schema: {}", e);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Database schema initialization error: {}", e),
+        ));
+    }
 
     let mut initial_flows = match get_keys_from_db(&db_client).await {
         Ok(flows) => flows,
