@@ -163,8 +163,12 @@ pub async fn add_keys(
         valid_keys.push(new_key.clone());
     }
 
-    info!("Processing batch of {} keys for flow: {}", valid_keys.len(), flow_id_str);
-    
+    info!(
+        "Processing batch of {} keys for flow: {}",
+        valid_keys.len(),
+        flow_id_str
+    );
+
     // Батчевая вставка ключей с получением статистики
     let key_stats = match crate::db::batch_insert_keys(&db_client, &valid_keys).await {
         Ok(stats) => stats,
@@ -178,19 +182,21 @@ pub async fn add_keys(
     // Если нет новых ключей, нет необходимости обновлять связи с flow
     if key_stats.inserted > 0 {
         // Извлекаем только ID ключей из статистики
-        let key_ids: Vec<i32> = key_stats.key_id_map
-            .iter()
-            .map(|(_, id)| *id)
-            .collect();
-        
+        let key_ids: Vec<i32> = key_stats.key_id_map.iter().map(|(_, id)| *id).collect();
+
         // Батчевая вставка связей ключей с flow
-        if let Err(e) = crate::db::batch_insert_flow_keys(&db_client, &flow_id_str, &key_ids).await {
+        if let Err(e) = crate::db::batch_insert_flow_keys(&db_client, &flow_id_str, &key_ids).await
+        {
             error!("Failed to batch insert flow keys into database: {}", e);
             return HttpResponse::InternalServerError()
                 .body("Failed to batch insert flow keys into database");
         }
-        
-        info!("Added flow associations for {} keys in flow '{}'", key_ids.len(), flow_id_str);
+
+        info!(
+            "Added flow associations for {} keys in flow '{}'",
+            key_ids.len(),
+            flow_id_str
+        );
     } else {
         info!("No new keys to associate with flow '{}'", flow_id_str);
     }
@@ -211,15 +217,21 @@ pub async fn add_keys(
     let updated_flow = flows_guard.iter().find(|flow| flow.name == flow_id_str);
     if let Some(flow) = updated_flow {
         let servers: Vec<&SshKey> = flow.servers.iter().collect();
-        info!("Keys summary for flow '{}': total received={}, new={}, unchanged={}, total in flow={}",
-              flow_id_str, key_stats.total, key_stats.inserted, key_stats.unchanged, servers.len());
-        
+        info!(
+            "Keys summary for flow '{}': total received={}, new={}, unchanged={}, total in flow={}",
+            flow_id_str,
+            key_stats.total,
+            key_stats.inserted,
+            key_stats.unchanged,
+            servers.len()
+        );
+
         // Добавляем статистику в HTTP заголовки ответа
         let mut response = HttpResponse::Ok();
         response.append_header(("X-Keys-Total", key_stats.total.to_string()));
         response.append_header(("X-Keys-New", key_stats.inserted.to_string()));
         response.append_header(("X-Keys-Unchanged", key_stats.unchanged.to_string()));
-        
+
         response.json(servers)
     } else {
         error!("Flow ID not found after update: {}", flow_id_str);

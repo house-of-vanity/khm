@@ -1,21 +1,21 @@
-use log::{info};
+use crate::server::SshKey;
+use log::info;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use tokio_postgres::Client;
-use crate::server::SshKey;
 
 // Структура для хранения статистики обработки ключей
 pub struct KeyInsertStats {
-    pub total: usize,      // Общее количество полученных ключей
-    pub inserted: usize,   // Количество новых ключей
-    pub updated: usize,    // Количество обновленных ключей
-    pub unchanged: usize,  // Количество неизмененных ключей
+    pub total: usize,                   // Общее количество полученных ключей
+    pub inserted: usize,                // Количество новых ключей
+    pub updated: usize,                 // Количество обновленных ключей
+    pub unchanged: usize,               // Количество неизмененных ключей
     pub key_id_map: Vec<(SshKey, i32)>, // Связь ключей с их ID в базе
 }
 
 pub async fn initialize_db_schema(client: &Client) -> Result<(), tokio_postgres::Error> {
     info!("Checking and initializing database schema if needed");
-    
+
     // Check if tables exist by querying information_schema
     let tables_exist = client
         .query(
@@ -37,7 +37,7 @@ pub async fn initialize_db_schema(client: &Client) -> Result<(), tokio_postgres:
 
     if !tables_exist {
         info!("Database schema doesn't exist. Creating tables...");
-        
+
         // Create the keys table
         client
             .execute(
@@ -51,7 +51,7 @@ pub async fn initialize_db_schema(client: &Client) -> Result<(), tokio_postgres:
                 &[],
             )
             .await?;
-        
+
         // Create the flows table
         client
             .execute(
@@ -68,7 +68,7 @@ pub async fn initialize_db_schema(client: &Client) -> Result<(), tokio_postgres:
                 &[],
             )
             .await?;
-        
+
         // Create an index for faster lookups
         client
             .execute(
@@ -76,12 +76,12 @@ pub async fn initialize_db_schema(client: &Client) -> Result<(), tokio_postgres:
                 &[],
             )
             .await?;
-            
+
         info!("Database schema created successfully");
     } else {
         info!("Database schema already exists");
     }
-    
+
     Ok(())
 }
 
@@ -102,42 +102,43 @@ pub async fn batch_insert_keys(
     // Подготавливаем массивы для пакетной вставки
     let mut host_values: Vec<&str> = Vec::with_capacity(keys.len());
     let mut key_values: Vec<&str> = Vec::with_capacity(keys.len());
-    
+
     for key in keys {
         host_values.push(&key.server);
         key_values.push(&key.public_key);
     }
-    
+
     // Сначала проверяем, какие ключи уже существуют в базе
     let mut existing_keys = HashMap::new();
     let mut key_query = String::from("SELECT host, key, key_id FROM public.keys WHERE ");
-    
+
     for i in 0..keys.len() {
         if i > 0 {
             key_query.push_str(" OR ");
         }
         key_query.push_str(&format!("(host = ${} AND key = ${})", i * 2 + 1, i * 2 + 2));
     }
-    
-    let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(keys.len() * 2);
+
+    let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+        Vec::with_capacity(keys.len() * 2);
     for i in 0..keys.len() {
         params.push(&host_values[i]);
         params.push(&key_values[i]);
     }
-    
+
     let rows = client.query(&key_query, &params[..]).await?;
-    
+
     for row in rows {
         let host: String = row.get(0);
         let key: String = row.get(1);
         let key_id: i32 = row.get(2);
         existing_keys.insert((host, key), key_id);
     }
-    
+
     // Определяем, какие ключи нужно вставить, а какие уже существуют
     let mut keys_to_insert = Vec::new();
     let mut unchanged_keys = Vec::new();
-    
+
     for key in keys {
         let key_tuple = (key.server.clone(), key.public_key.clone());
         if existing_keys.contains_key(&key_tuple) {
@@ -146,18 +147,16 @@ pub async fn batch_insert_keys(
             keys_to_insert.push(key.clone());
         }
     }
-    
+
     let mut inserted_keys = Vec::new();
-    
+
     // Если есть ключи для вставки, выполняем вставку
     if !keys_to_insert.is_empty() {
-        let mut insert_sql = String::from(
-            "INSERT INTO public.keys (host, key, updated) VALUES "
-        );
-        
+        let mut insert_sql = String::from("INSERT INTO public.keys (host, key, updated) VALUES ");
+
         let mut insert_params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::new();
         let mut param_count = 1;
-        
+
         for (i, key) in keys_to_insert.iter().enumerate() {
             if i > 0 {
                 insert_sql.push_str(", ");
@@ -167,31 +166,34 @@ pub async fn batch_insert_keys(
             insert_params.push(&key.public_key);
             param_count += 2;
         }
-        
+
         insert_sql.push_str(" RETURNING key_id, host, key");
-        
+
         let inserted_rows = client.query(&insert_sql, &insert_params[..]).await?;
-        
+
         for row in inserted_rows {
             let host: String = row.get(1);
             let key_text: String = row.get(2);
             let key_id: i32 = row.get(0);
-            
-            if let Some(orig_key) = keys_to_insert.iter().find(|k| k.server == host && k.public_key == key_text) {
+
+            if let Some(orig_key) = keys_to_insert
+                .iter()
+                .find(|k| k.server == host && k.public_key == key_text)
+            {
                 inserted_keys.push((orig_key.clone(), key_id));
             }
         }
     }
-    
+
     // Сохраняем количество элементов перед объединением
     let inserted_count = inserted_keys.len();
     let unchanged_count = unchanged_keys.len();
-    
+
     // Комбинируем результаты и формируем статистику
     let mut key_id_map = Vec::with_capacity(unchanged_count + inserted_count);
     key_id_map.extend(unchanged_keys);
     key_id_map.extend(inserted_keys);
-    
+
     let stats = KeyInsertStats {
         total: keys.len(),
         inserted: inserted_count,
@@ -199,10 +201,12 @@ pub async fn batch_insert_keys(
         unchanged: unchanged_count,
         key_id_map,
     };
-    
-    info!("Keys stats: received={}, new={}, unchanged={}", 
-          stats.total, stats.inserted, stats.unchanged);
-    
+
+    info!(
+        "Keys stats: received={}, new={}, unchanged={}",
+        stats.total, stats.inserted, stats.unchanged
+    );
+
     Ok(stats)
 }
 
@@ -217,10 +221,9 @@ pub async fn batch_insert_flow_keys(
     }
 
     // Сначала проверим, какие связи уже существуют
-    let mut existing_query = String::from(
-        "SELECT key_id FROM public.flows WHERE name = $1 AND key_id IN ("
-    );
-    
+    let mut existing_query =
+        String::from("SELECT key_id FROM public.flows WHERE name = $1 AND key_id IN (");
+
     for i in 0..key_ids.len() {
         if i > 0 {
             existing_query.push_str(", ");
@@ -228,35 +231,39 @@ pub async fn batch_insert_flow_keys(
         existing_query.push_str(&format!("${}", i + 2));
     }
     existing_query.push_str(")");
-    
-    let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(key_ids.len() + 1);
+
+    let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+        Vec::with_capacity(key_ids.len() + 1);
     params.push(&flow_name);
     for key_id in key_ids {
         params.push(key_id);
     }
-    
+
     let rows = client.query(&existing_query, &params[..]).await?;
-    
+
     let mut existing_associations = HashSet::new();
     for row in rows {
         let key_id: i32 = row.get(0);
         existing_associations.insert(key_id);
     }
-    
+
     // Фильтруем только те ключи, которые еще не связаны с потоком
-    let new_key_ids: Vec<&i32> = key_ids.iter()
+    let new_key_ids: Vec<&i32> = key_ids
+        .iter()
         .filter(|&id| !existing_associations.contains(id))
         .collect();
-    
+
     if new_key_ids.is_empty() {
-        info!("All {} keys are already associated with flow '{}'", key_ids.len(), flow_name);
+        info!(
+            "All {} keys are already associated with flow '{}'",
+            key_ids.len(),
+            flow_name
+        );
         return Ok(0);
     }
-    
+
     // Строим SQL запрос с множественными значениями только для новых связей
-    let mut sql = String::from(
-        "INSERT INTO public.flows (name, key_id) VALUES "
-    );
+    let mut sql = String::from("INSERT INTO public.flows (name, key_id) VALUES ");
 
     for i in 0..new_key_ids.len() {
         if i > 0 {
@@ -268,7 +275,8 @@ pub async fn batch_insert_flow_keys(
     sql.push_str(" ON CONFLICT (name, key_id) DO NOTHING");
 
     // Подготавливаем параметры для запроса
-    let mut insert_params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(new_key_ids.len() + 1);
+    let mut insert_params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+        Vec::with_capacity(new_key_ids.len() + 1);
     insert_params.push(&flow_name);
     for key_id in &new_key_ids {
         insert_params.push(*key_id);
@@ -276,11 +284,15 @@ pub async fn batch_insert_flow_keys(
 
     // Выполняем запрос
     let affected = client.execute(&sql, &insert_params[..]).await?;
-    
+
     let affected_usize = affected as usize;
-    
-    info!("Added {} new key-flow associations for flow '{}' (skipped {} existing)",
-           affected_usize, flow_name, existing_associations.len());
-    
+
+    info!(
+        "Added {} new key-flow associations for flow '{}' (skipped {} existing)",
+        affected_usize,
+        flow_name,
+        existing_associations.len()
+    );
+
     Ok(affected_usize)
 }
