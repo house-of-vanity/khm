@@ -4,13 +4,12 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use tokio_postgres::Client;
 
-// Структура для хранения статистики обработки ключей
+// Structure for storing key processing statistics
 pub struct KeyInsertStats {
-    pub total: usize,                   // Общее количество полученных ключей
-    pub inserted: usize,                // Количество новых ключей
-    pub updated: usize,                 // Количество обновленных ключей
-    pub unchanged: usize,               // Количество неизмененных ключей
-    pub key_id_map: Vec<(SshKey, i32)>, // Связь ключей с их ID в базе
+    pub total: usize,                   // Total number of received keys
+    pub inserted: usize,                // Number of new keys
+    pub unchanged: usize,               // Number of unchanged keys
+    pub key_id_map: Vec<(SshKey, i32)>, // Mapping of keys to their IDs in the database
 }
 
 pub async fn initialize_db_schema(client: &Client) -> Result<(), tokio_postgres::Error> {
@@ -93,13 +92,12 @@ pub async fn batch_insert_keys(
         return Ok(KeyInsertStats {
             total: 0,
             inserted: 0,
-            updated: 0,
             unchanged: 0,
             key_id_map: Vec::new(),
         });
     }
 
-    // Подготавливаем массивы для пакетной вставки
+    // Prepare arrays for batch insertion
     let mut host_values: Vec<&str> = Vec::with_capacity(keys.len());
     let mut key_values: Vec<&str> = Vec::with_capacity(keys.len());
 
@@ -108,7 +106,7 @@ pub async fn batch_insert_keys(
         key_values.push(&key.public_key);
     }
 
-    // Сначала проверяем, какие ключи уже существуют в базе
+    // First, check which keys already exist in the database
     let mut existing_keys = HashMap::new();
     let mut key_query = String::from("SELECT host, key, key_id FROM public.keys WHERE ");
 
@@ -135,7 +133,7 @@ pub async fn batch_insert_keys(
         existing_keys.insert((host, key), key_id);
     }
 
-    // Определяем, какие ключи нужно вставить, а какие уже существуют
+    // Determine which keys need to be inserted and which already exist
     let mut keys_to_insert = Vec::new();
     let mut unchanged_keys = Vec::new();
 
@@ -150,7 +148,7 @@ pub async fn batch_insert_keys(
 
     let mut inserted_keys = Vec::new();
 
-    // Если есть ключи для вставки, выполняем вставку
+    // If there are keys to insert, perform the insertion
     if !keys_to_insert.is_empty() {
         let mut insert_sql = String::from("INSERT INTO public.keys (host, key, updated) VALUES ");
 
@@ -185,11 +183,11 @@ pub async fn batch_insert_keys(
         }
     }
 
-    // Сохраняем количество элементов перед объединением
+    // Save the number of elements before combining
     let inserted_count = inserted_keys.len();
     let unchanged_count = unchanged_keys.len();
 
-    // Комбинируем результаты и формируем статистику
+    // Combine results and generate statistics
     let mut key_id_map = Vec::with_capacity(unchanged_count + inserted_count);
     key_id_map.extend(unchanged_keys);
     key_id_map.extend(inserted_keys);
@@ -197,7 +195,6 @@ pub async fn batch_insert_keys(
     let stats = KeyInsertStats {
         total: keys.len(),
         inserted: inserted_count,
-        updated: 0, // В этой версии мы не обновляем существующие ключи
         unchanged: unchanged_count,
         key_id_map,
     };
@@ -220,7 +217,7 @@ pub async fn batch_insert_flow_keys(
         return Ok(0);
     }
 
-    // Сначала проверим, какие связи уже существуют
+    // First, check which associations already exist
     let mut existing_query =
         String::from("SELECT key_id FROM public.flows WHERE name = $1 AND key_id IN (");
 
@@ -247,7 +244,7 @@ pub async fn batch_insert_flow_keys(
         existing_associations.insert(key_id);
     }
 
-    // Фильтруем только те ключи, которые еще не связаны с потоком
+    // Filter only keys that are not yet associated with the flow
     let new_key_ids: Vec<&i32> = key_ids
         .iter()
         .filter(|&id| !existing_associations.contains(id))
@@ -262,7 +259,7 @@ pub async fn batch_insert_flow_keys(
         return Ok(0);
     }
 
-    // Строим SQL запрос с множественными значениями только для новых связей
+    // Build SQL query with multiple values only for new associations
     let mut sql = String::from("INSERT INTO public.flows (name, key_id) VALUES ");
 
     for i in 0..new_key_ids.len() {
@@ -274,7 +271,7 @@ pub async fn batch_insert_flow_keys(
 
     sql.push_str(" ON CONFLICT (name, key_id) DO NOTHING");
 
-    // Подготавливаем параметры для запроса
+    // Prepare parameters for the query
     let mut insert_params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
         Vec::with_capacity(new_key_ids.len() + 1);
     insert_params.push(&flow_name);
@@ -282,7 +279,7 @@ pub async fn batch_insert_flow_keys(
         insert_params.push(*key_id);
     }
 
-    // Выполняем запрос
+    // Execute query
     let affected = client.execute(&sql, &insert_params[..]).await?;
 
     let affected_usize = affected as usize;

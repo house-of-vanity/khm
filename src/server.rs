@@ -1,4 +1,4 @@
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use log::{error, info};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -35,50 +35,7 @@ pub fn is_valid_ssh_key(key: &str) -> bool {
         || ed25519_re.is_match(key)
 }
 
-pub async fn insert_key_if_not_exists(
-    client: &Client,
-    key: &SshKey,
-) -> Result<i32, tokio_postgres::Error> {
-    let row = client
-        .query_opt(
-            "SELECT key_id FROM public.keys WHERE host = $1 AND key = $2",
-            &[&key.server, &key.public_key],
-        )
-        .await?;
-
-    if let Some(row) = row {
-        client
-            .execute(
-                "UPDATE public.keys SET updated = NOW() WHERE key_id = $1",
-                &[&row.get::<_, i32>(0)],
-            )
-            .await?;
-        info!("Updated existing key for server: {}", key.server);
-        Ok(row.get(0))
-    } else {
-        let row = client.query_one(
-            "INSERT INTO public.keys (host, key, updated) VALUES ($1, $2, NOW()) RETURNING key_id",
-            &[&key.server, &key.public_key]
-        ).await?;
-        info!("Inserted new key for server: {}", key.server);
-        Ok(row.get(0))
-    }
-}
-
-pub async fn insert_flow_key(
-    client: &Client,
-    flow_name: &str,
-    key_id: i32,
-) -> Result<(), tokio_postgres::Error> {
-    client
-        .execute(
-            "INSERT INTO public.flows (name, key_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            &[&flow_name, &key_id],
-        )
-        .await?;
-    info!("Inserted key_id {} into flow: {}", key_id, flow_name);
-    Ok(())
-}
+// Note: Removed unused functions insert_key_if_not_exists and insert_flow_key
 
 pub async fn get_keys_from_db(client: &Client) -> Result<Vec<Flow>, tokio_postgres::Error> {
     let rows = client.query(
@@ -115,24 +72,53 @@ pub async fn get_keys_from_db(client: &Client) -> Result<Vec<Flow>, tokio_postgr
     Ok(flows_map.into_values().collect())
 }
 
+// Extract client hostname from request headers
+fn get_client_hostname(req: &HttpRequest) -> String {
+    if let Some(hostname) = req.headers().get("X-Client-Hostname") {
+        if let Ok(hostname_str) = hostname.to_str() {
+            return hostname_str.to_string();
+        }
+    }
+    "unknown-client".to_string()
+}
+
 pub async fn get_keys(
     flows: web::Data<Flows>,
     flow_id: web::Path<String>,
     allowed_flows: web::Data<Vec<String>>,
+    req: HttpRequest,
 ) -> impl Responder {
+    let client_hostname = get_client_hostname(&req);
     let flow_id_str = flow_id.into_inner();
+
+    info!(
+        "Received keys request from client '{}' for flow '{}'",
+        client_hostname, flow_id_str
+    );
+
     if !allowed_flows.contains(&flow_id_str) {
-        error!("Flow ID not allowed: {}", flow_id_str);
+        error!(
+            "Flow ID not allowed for client '{}': {}",
+            client_hostname, flow_id_str
+        );
         return HttpResponse::Forbidden().body("Flow ID not allowed");
     }
 
     let flows = flows.lock().unwrap();
     if let Some(flow) = flows.iter().find(|flow| flow.name == flow_id_str) {
         let servers: Vec<&SshKey> = flow.servers.iter().collect();
-        info!("Returning {} keys for flow: {}", servers.len(), flow_id_str);
+        info!(
+            "Returning {} keys for flow '{}' to client '{}'",
+            servers.len(),
+            flow_id_str,
+            client_hostname
+        );
         HttpResponse::Ok().json(servers)
     } else {
-        error!("Flow ID not found: {}", flow_id_str);
+        error!(
+            "Flow ID not found for client '{}': {}",
+            client_hostname, flow_id_str
+        );
         HttpResponse::NotFound().body("Flow ID not found")
     }
 }
@@ -143,18 +129,34 @@ pub async fn add_keys(
     new_keys: web::Json<Vec<SshKey>>,
     db_client: web::Data<Arc<Client>>,
     allowed_flows: web::Data<Vec<String>>,
+    req: HttpRequest,
 ) -> impl Responder {
+    let client_hostname = get_client_hostname(&req);
     let flow_id_str = flow_id.into_inner();
+
+    info!(
+        "Received {} keys from client '{}' for flow '{}'",
+        new_keys.len(),
+        client_hostname,
+        flow_id_str
+    );
+
     if !allowed_flows.contains(&flow_id_str) {
-        error!("Flow ID not allowed: {}", flow_id_str);
+        error!(
+            "Flow ID not allowed for client '{}': {}",
+            client_hostname, flow_id_str
+        );
         return HttpResponse::Forbidden().body("Flow ID not allowed");
     }
 
-    // Проверяем формат SSH ключей
+    // Check SSH key format
     let mut valid_keys = Vec::new();
     for new_key in new_keys.iter() {
         if !is_valid_ssh_key(&new_key.public_key) {
-            error!("Invalid SSH key format for server: {}", new_key.server);
+            error!(
+                "Invalid SSH key format from client '{}' for server: {}",
+                client_hostname, new_key.server
+            );
             return HttpResponse::BadRequest().body(format!(
                 "Invalid SSH key format for server: {}",
                 new_key.server
@@ -164,48 +166,62 @@ pub async fn add_keys(
     }
 
     info!(
-        "Processing batch of {} keys for flow: {}",
+        "Processing batch of {} keys from client '{}' for flow: {}",
         valid_keys.len(),
+        client_hostname,
         flow_id_str
     );
 
-    // Батчевая вставка ключей с получением статистики
+    // Batch insert keys with statistics
     let key_stats = match crate::db::batch_insert_keys(&db_client, &valid_keys).await {
         Ok(stats) => stats,
         Err(e) => {
-            error!("Failed to batch insert keys into database: {}", e);
+            error!(
+                "Failed to batch insert keys from client '{}' into database: {}",
+                client_hostname, e
+            );
             return HttpResponse::InternalServerError()
                 .body("Failed to batch insert keys into database");
         }
     };
 
-    // Если нет новых ключей, нет необходимости обновлять связи с flow
+    // If there are no new keys, no need to update flow associations
     if key_stats.inserted > 0 {
-        // Извлекаем только ID ключей из статистики
+        // Extract only key IDs from statistics
         let key_ids: Vec<i32> = key_stats.key_id_map.iter().map(|(_, id)| *id).collect();
 
-        // Батчевая вставка связей ключей с flow
+        // Batch insert key-flow associations
         if let Err(e) = crate::db::batch_insert_flow_keys(&db_client, &flow_id_str, &key_ids).await
         {
-            error!("Failed to batch insert flow keys into database: {}", e);
+            error!(
+                "Failed to batch insert flow keys from client '{}' into database: {}",
+                client_hostname, e
+            );
             return HttpResponse::InternalServerError()
                 .body("Failed to batch insert flow keys into database");
         }
 
         info!(
-            "Added flow associations for {} keys in flow '{}'",
+            "Added flow associations for {} keys from client '{}' in flow '{}'",
             key_ids.len(),
+            client_hostname,
             flow_id_str
         );
     } else {
-        info!("No new keys to associate with flow '{}'", flow_id_str);
+        info!(
+            "No new keys to associate from client '{}' with flow '{}'",
+            client_hostname, flow_id_str
+        );
     }
 
-    // Получаем обновленные данные
+    // Get updated data
     let updated_flows = match get_keys_from_db(&db_client).await {
         Ok(flows) => flows,
         Err(e) => {
-            error!("Failed to get updated flows from database: {}", e);
+            error!(
+                "Failed to get updated flows from database after client '{}' request: {}",
+                client_hostname, e
+            );
             return HttpResponse::InternalServerError()
                 .body("Failed to refresh flows from database");
         }
@@ -218,7 +234,8 @@ pub async fn add_keys(
     if let Some(flow) = updated_flow {
         let servers: Vec<&SshKey> = flow.servers.iter().collect();
         info!(
-            "Keys summary for flow '{}': total received={}, new={}, unchanged={}, total in flow={}",
+            "Keys summary for client '{}', flow '{}': total received={}, new={}, unchanged={}, total in flow={}",
+            client_hostname,
             flow_id_str,
             key_stats.total,
             key_stats.inserted,
@@ -226,7 +243,7 @@ pub async fn add_keys(
             servers.len()
         );
 
-        // Добавляем статистику в HTTP заголовки ответа
+        // Add statistics to HTTP response headers
         let mut response = HttpResponse::Ok();
         response.append_header(("X-Keys-Total", key_stats.total.to_string()));
         response.append_header(("X-Keys-New", key_stats.inserted.to_string()));
@@ -234,7 +251,10 @@ pub async fn add_keys(
 
         response.json(servers)
     } else {
-        error!("Flow ID not found after update: {}", flow_id_str);
+        error!(
+            "Flow ID not found after update from client '{}': {}",
+            client_hostname, flow_id_str
+        );
         HttpResponse::NotFound().body("Flow ID not found")
     }
 }

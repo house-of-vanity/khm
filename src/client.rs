@@ -50,6 +50,14 @@ fn write_known_hosts(file_path: &str, keys: &[SshKey]) -> io::Result<()> {
     Ok(())
 }
 
+// Get local hostname for request headers
+fn get_hostname() -> String {
+    match hostname::get() {
+        Ok(name) => name.to_string_lossy().to_string(),
+        Err(_) => "unknown-host".to_string(),
+    }
+}
+
 async fn send_keys_to_server(
     host: &str,
     keys: Vec<SshKey>,
@@ -60,6 +68,17 @@ async fn send_keys_to_server(
     info!("URL: {} ", url);
 
     let mut headers = HeaderMap::new();
+
+    // Add hostname header
+    let hostname = get_hostname();
+    headers.insert(
+        "X-Client-Hostname",
+        HeaderValue::from_str(&hostname).unwrap_or_else(|_| {
+            error!("Failed to create hostname header value");
+            HeaderValue::from_static("unknown-host")
+        }),
+    );
+    info!("Adding hostname header: {}", hostname);
 
     if !auth_string.is_empty() {
         let parts: Vec<&str> = auth_string.splitn(2, ':').collect();
@@ -104,6 +123,17 @@ async fn get_keys_from_server(
     let url = format!("{}/keys", host);
 
     let mut headers = HeaderMap::new();
+
+    // Add hostname header
+    let hostname = get_hostname();
+    headers.insert(
+        "X-Client-Hostname",
+        HeaderValue::from_str(&hostname).unwrap_or_else(|_| {
+            error!("Failed to create hostname header value");
+            HeaderValue::from_static("unknown-host")
+        }),
+    );
+    info!("Adding hostname header: {}", hostname);
 
     if !auth_string.is_empty() {
         let parts: Vec<&str> = auth_string.splitn(2, ':').collect();
