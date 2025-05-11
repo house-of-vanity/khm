@@ -38,6 +38,7 @@ Options:
 - `--db-name <DB_NAME>` Server mode: Name of the PostgreSQL database [default: khm]
 - `--db-user <DB_USER>` Server mode: Username for the PostgreSQL database
 - `--db-password <DB_PASSWORD>` Server mode: Password for the PostgreSQL database
+- `--basic-auth <BASIC_AUTH>` Client mode: Basic Auth credentials [default: ""]
 - `--host <HOST>` Client mode: Full host address of the server to connect to. Like `https://khm.example.com/<FLOW_NAME>`
 - `--known-hosts <KNOWN_HOSTS>` Client mode: Path to the known_hosts file [default: ~/.ssh/known_hosts]
 
