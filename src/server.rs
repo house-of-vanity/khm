@@ -35,8 +35,6 @@ pub fn is_valid_ssh_key(key: &str) -> bool {
         || ed25519_re.is_match(key)
 }
 
-// Note: Removed unused functions insert_key_if_not_exists and insert_flow_key
-
 pub async fn get_keys_from_db(client: &Client) -> Result<Vec<Flow>, tokio_postgres::Error> {
     let rows = client.query(
         "SELECT k.host, k.key, f.name FROM public.keys k INNER JOIN public.flows f ON k.key_id = f.key_id",
@@ -185,9 +183,9 @@ pub async fn add_keys(
         }
     };
 
-    // If there are no new keys, no need to update flow associations
-    if key_stats.inserted > 0 {
-        // Extract only key IDs from statistics
+    // Always try to associate all keys with the flow, regardless of whether they're new or existing
+    if !key_stats.key_id_map.is_empty() {
+        // Extract all key IDs from statistics, both new and existing
         let key_ids: Vec<i32> = key_stats.key_id_map.iter().map(|(_, id)| *id).collect();
 
         // Batch insert key-flow associations
@@ -209,7 +207,7 @@ pub async fn add_keys(
         );
     } else {
         info!(
-            "No new keys to associate from client '{}' with flow '{}'",
+            "No keys to associate from client '{}' with flow '{}'",
             client_hostname, flow_id_str
         );
     }
