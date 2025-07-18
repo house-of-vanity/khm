@@ -1064,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "khm"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "actix-web",
  "base64 0.21.7",
@@ -1079,6 +1079,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-postgres",
+ "tokio-util",
 ]
 
 [[package]]

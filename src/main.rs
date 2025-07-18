@@ -1,6 +1,7 @@
 mod client;
 mod db;
 mod server;
+mod web;
 
 use clap::Parser;
 use env_logger;
@@ -118,6 +119,19 @@ async fn main() -> std::io::Result<()> {
     info!("Starting SSH Key Manager");
 
     let args = Args::parse();
+
+    // Check if we have the minimum required arguments
+    if !args.server && args.host.is_none() {
+        // Neither server mode nor client mode properly configured
+        eprintln!("Error: You must specify either server mode (--server) or client mode (--host)");
+        eprintln!();
+        eprintln!("Examples:");
+        eprintln!("  Server mode: {} --server --db-user admin --db-password pass --flows work,home", env!("CARGO_PKG_NAME"));
+        eprintln!("  Client mode: {} --host https://khm.example.com/work", env!("CARGO_PKG_NAME"));
+        eprintln!();
+        eprintln!("Use --help for more information.");
+        std::process::exit(1);
+    }
 
     if args.server {
         info!("Running in server mode");

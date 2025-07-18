@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSH Key Manager</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SSH Key Manager</h1>
+            <div class="flow-selector">
+                <label for="flowSelect">Flow:</label>
+                <select id="flowSelect">
+                    <option value="">Select a flow...</option>
+                </select>
+                <button id="refreshBtn" class="btn btn-secondary">Refresh</button>
+            </div>
+        </header>
+
+        <main>
+            <div class="stats-panel">
+                <div class="stat-item">
+                    <span class="stat-value" id="totalKeys">0</span>
+                    <span class="stat-label">Total Keys</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="uniqueServers">0</span>
+                    <span class="stat-label">Unique Servers</span>
+                </div>
+            </div>
+
+            <div class="actions-panel">
+                <button id="addKeyBtn" class="btn btn-primary">Add SSH Key</button>
+                <button id="bulkDeleteBtn" class="btn btn-danger" disabled>Delete Selected</button>
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="Search servers or keys...">
+                </div>
+            </div>
+
+            <div class="keys-table-container">
+                <table class="keys-table">
+                    <thead>
+                        <tr>
+                            <th>
+                                <input type="checkbox" id="selectAll">
+                            </th>
+                            <th>Server</th>
+                            <th>Key Type</th>
+                            <th>Key Preview</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="keysTableBody">
+                        <!-- Keys will be populated here -->
+                    </tbody>
+                </table>
+                <div id="noKeysMessage" class="no-keys-message" style="display: none;">
+                    No SSH keys found for this flow.
+                </div>
+            </div>
+
+            <div class="pagination">
+                <button id="prevPage" class="btn btn-secondary" disabled>Previous</button>
+                <span id="pageInfo">Page 1 of 1</span>
+                <button id="nextPage" class="btn btn-secondary" disabled>Next</button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add Key Modal -->
+    <div id="addKeyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add SSH Key</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <form id="addKeyForm">
+                    <div class="form-group">
+                        <label for="serverInput">Server/Hostname:</label>
+                        <input type="text" id="serverInput" required placeholder="example.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="keyInput">SSH Public Key:</label>
+                        <textarea id="keyInput" required placeholder="ssh-rsa AAAAB3..."></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" id="cancelAdd">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Add Key</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Key Modal -->
+    <div id="viewKeyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>SSH Key Details</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Server:</label>
+                    <div id="viewServer" class="read-only-field"></div>
+                </div>
+                <div class="form-group">
+                    <label>SSH Public Key:</label>
+                    <textarea id="viewKey" class="read-only-field" readonly></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="closeView">Close</button>
+                    <button type="button" class="btn btn-primary" id="copyKey">Copy Key</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading...</div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

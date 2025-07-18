@@ -1,6 +1,6 @@
 [package]
 name = "khm"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2021"
 authors = ["AB <ab@hexor.cy>"]
 
@@ -14,6 +14,7 @@ regex = "1.10.5"
 base64 = "0.21"
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+tokio-util = { version = "0.7", features = ["codec"] }
 clap = { version = "4", features = ["derive"] }
 chrono = "0.4.38"
 reqwest = { version = "0.12", features = ["json"] }

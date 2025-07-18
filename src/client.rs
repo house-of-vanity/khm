@@ -162,23 +162,43 @@ async fn get_keys_from_server(
 
 pub async fn run_client(args: crate::Args) -> std::io::Result<()> {
     info!("Client mode: Reading known_hosts file");
-    let keys = read_known_hosts(&args.known_hosts).expect("Failed to read known hosts file");
+    
+    let keys = match read_known_hosts(&args.known_hosts) {
+        Ok(keys) => keys,
+        Err(e) => {
+            if e.kind() == io::ErrorKind::NotFound {
+                info!("known_hosts file not found: {}. Starting with empty key list.", args.known_hosts);
+                Vec::new()
+            } else {
+                error!("Failed to read known_hosts file: {}", e);
+                return Err(e);
+            }
+        }
+    };
 
     let host = args.host.expect("host is required in client mode");
     info!("Client mode: Sending keys to server at {}", host);
-    send_keys_to_server(&host, keys, &args.basic_auth)
-        .await
-        .expect("Failed to send keys to server");
+    
+    if let Err(e) = send_keys_to_server(&host, keys, &args.basic_auth).await {
+        error!("Failed to send keys to server: {}", e);
+        return Err(io::Error::new(io::ErrorKind::Other, format!("Network error: {}", e)));
+    }
 
     if args.in_place {
         info!("Client mode: In-place update is enabled. Fetching keys from server.");
-        let server_keys = get_keys_from_server(&host, &args.basic_auth)
-            .await
-            .expect("Failed to get keys from server");
+        let server_keys = match get_keys_from_server(&host, &args.basic_auth).await {
+            Ok(keys) => keys,
+            Err(e) => {
+                error!("Failed to get keys from server: {}", e);
+                return Err(io::Error::new(io::ErrorKind::Other, format!("Network error: {}", e)));
+            }
+        };
 
         info!("Client mode: Writing updated known_hosts file");
-        write_known_hosts(&args.known_hosts, &server_keys)
-            .expect("Failed to write known hosts file");
+        if let Err(e) = write_known_hosts(&args.known_hosts, &server_keys) {
+            error!("Failed to write known_hosts file: {}", e);
+            return Err(e);
+        }
     }
 
     info!("Client mode: Finished operations");

@@ -324,8 +324,15 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
             .app_data(web::Data::new(flows.clone()))
             .app_data(web::Data::new(db_client.clone()))
             .app_data(allowed_flows.clone())
+            // API routes
+            .route("/api/flows", web::get().to(crate::web::get_flows_api))
+            .route("/{flow_id}/keys/{server}", web::delete().to(crate::web::delete_key_by_server))
+            // Original API routes
             .route("/{flow_id}/keys", web::get().to(get_keys))
             .route("/{flow_id}/keys", web::post().to(add_keys))
+            // Web interface routes
+            .route("/", web::get().to(crate::web::serve_web_interface))
+            .route("/static/{filename:.*}", web::get().to(crate::web::serve_static_file))
     })
     .bind((args.ip.as_str(), args.port))?
     .run()
