@@ -45,6 +45,7 @@ pub async fn initialize_db_schema(client: &Client) -> Result<(), tokio_postgres:
                     host VARCHAR(255) NOT NULL,
                     key TEXT NOT NULL,
                     updated TIMESTAMP WITH TIME ZONE NOT NULL,
+                    deprecated BOOLEAN NOT NULL DEFAULT FALSE,
                     CONSTRAINT unique_host_key UNIQUE (host, key)
                 )",
                 &[],
@@ -79,6 +80,33 @@ pub async fn initialize_db_schema(client: &Client) -> Result<(), tokio_postgres:
         info!("Database schema created successfully");
     } else {
         info!("Database schema already exists");
+        
+        // Check if deprecated column exists, add it if missing (migration)
+        let column_exists = client
+            .query(
+                "SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'keys' 
+                    AND column_name = 'deprecated'
+                )",
+                &[],
+            )
+            .await?
+            .get(0)
+            .map(|row| row.get::<_, bool>(0))
+            .unwrap_or(false);
+        
+        if !column_exists {
+            info!("Adding deprecated column to existing keys table...");
+            client
+                .execute(
+                    "ALTER TABLE public.keys ADD COLUMN deprecated BOOLEAN NOT NULL DEFAULT FALSE",
+                    &[],
+                )
+                .await?;
+            info!("Migration completed: deprecated column added");
+        }
     }
 
     Ok(())
@@ -106,9 +134,9 @@ pub async fn batch_insert_keys(
         key_values.push(&key.public_key);
     }
 
-    // First, check which keys already exist in the database
+    // First, check which keys already exist in the database (including deprecated status)
     let mut existing_keys = HashMap::new();
-    let mut key_query = String::from("SELECT host, key, key_id FROM public.keys WHERE ");
+    let mut key_query = String::from("SELECT host, key, key_id, deprecated FROM public.keys WHERE ");
 
     for i in 0..keys.len() {
         if i > 0 {
@@ -130,18 +158,27 @@ pub async fn batch_insert_keys(
         let host: String = row.get(0);
         let key: String = row.get(1);
         let key_id: i32 = row.get(2);
-        existing_keys.insert((host, key), key_id);
+        let deprecated: bool = row.get(3);
+        existing_keys.insert((host, key), (key_id, deprecated));
     }
 
     // Determine which keys need to be inserted and which already exist
     let mut keys_to_insert = Vec::new();
     let mut unchanged_keys = Vec::new();
+    let mut ignored_deprecated = 0;
 
     for key in keys {
         let key_tuple = (key.server.clone(), key.public_key.clone());
-        if existing_keys.contains_key(&key_tuple) {
-            unchanged_keys.push((key.clone(), *existing_keys.get(&key_tuple).unwrap()));
+        if let Some((key_id, is_deprecated)) = existing_keys.get(&key_tuple) {
+            if *is_deprecated {
+                // Ignore deprecated keys - don't add them to any flow
+                ignored_deprecated += 1;
+            } else {
+                // Key exists and is not deprecated - add to unchanged
+                unchanged_keys.push((key.clone(), *key_id));
+            }
         } else {
+            // Key doesn't exist - add to insert list
             keys_to_insert.push(key.clone());
         }
     }
@@ -200,8 +237,8 @@ pub async fn batch_insert_keys(
     };
 
     info!(
-        "Keys stats: received={}, new={}, unchanged={}",
-        stats.total, stats.inserted, stats.unchanged
+        "Keys stats: received={}, new={}, unchanged={}, ignored_deprecated={}",
+        stats.total, stats.inserted, stats.unchanged, ignored_deprecated
     );
 
     Ok(stats)
@@ -292,4 +329,126 @@ pub async fn batch_insert_flow_keys(
     );
 
     Ok(affected_usize)
+}
+
+// Function to deprecate keys instead of deleting them
+pub async fn deprecate_key_by_server(
+    client: &Client,
+    server_name: &str,
+    flow_name: &str,
+) -> Result<u64, tokio_postgres::Error> {
+    // Update keys to deprecated status for the given server
+    let affected = client
+        .execute(
+            "UPDATE public.keys 
+             SET deprecated = TRUE, updated = NOW() 
+             WHERE host = $1 
+             AND key_id IN (
+                 SELECT key_id FROM public.flows WHERE name = $2
+             )",
+            &[&server_name, &flow_name],
+        )
+        .await?;
+
+    info!(
+        "Deprecated {} key(s) for server '{}' in flow '{}'",
+        affected, server_name, flow_name
+    );
+
+    Ok(affected)
+}
+
+// Function to restore deprecated key back to active
+pub async fn restore_key_by_server(
+    client: &Client,
+    server_name: &str,
+    flow_name: &str,
+) -> Result<u64, tokio_postgres::Error> {
+    // Update keys to active status for the given server in the flow
+    let affected = client
+        .execute(
+            "UPDATE public.keys 
+             SET deprecated = FALSE, updated = NOW() 
+             WHERE host = $1 
+             AND deprecated = TRUE
+             AND key_id IN (
+                 SELECT key_id FROM public.flows WHERE name = $2
+             )",
+            &[&server_name, &flow_name],
+        )
+        .await?;
+
+    info!(
+        "Restored {} key(s) for server '{}' in flow '{}'",
+        affected, server_name, flow_name
+    );
+
+    Ok(affected)
+}
+
+// Function to permanently delete keys from database
+pub async fn permanently_delete_key_by_server(
+    client: &Client,
+    server_name: &str,
+    flow_name: &str,
+) -> Result<u64, tokio_postgres::Error> {
+    // First, find the key_ids for the given server in the flow
+    let key_rows = client
+        .query(
+            "SELECT k.key_id FROM public.keys k 
+             INNER JOIN public.flows f ON k.key_id = f.key_id 
+             WHERE k.host = $1 AND f.name = $2",
+            &[&server_name, &flow_name]
+        )
+        .await?;
+
+    if key_rows.is_empty() {
+        return Ok(0);
+    }
+
+    let key_ids: Vec<i32> = key_rows.iter().map(|row| row.get::<_, i32>(0)).collect();
+
+    // Delete flow associations first
+    let mut flow_delete_count = 0;
+    for key_id in &key_ids {
+        let deleted = client
+            .execute(
+                "DELETE FROM public.flows WHERE name = $1 AND key_id = $2",
+                &[&flow_name, key_id],
+            )
+            .await?;
+        flow_delete_count += deleted;
+    }
+
+    // Check if any of these keys are used in other flows
+    let mut keys_to_delete = Vec::new();
+    for key_id in &key_ids {
+        let count: i64 = client
+            .query_one(
+                "SELECT COUNT(*) FROM public.flows WHERE key_id = $1",
+                &[key_id],
+            )
+            .await?
+            .get(0);
+
+        if count == 0 {
+            keys_to_delete.push(*key_id);
+        }
+    }
+
+    // Permanently delete keys that are no longer referenced by any flow
+    let mut total_deleted = 0;
+    for key_id in keys_to_delete {
+        let deleted = client
+            .execute("DELETE FROM public.keys WHERE key_id = $1", &[&key_id])
+            .await?;
+        total_deleted += deleted;
+    }
+
+    info!(
+        "Permanently deleted {} flow associations and {} orphaned keys for server '{}' in flow '{}'",
+        flow_delete_count, total_deleted, server_name, flow_name
+    );
+
+    Ok(std::cmp::max(flow_delete_count, total_deleted))
 }

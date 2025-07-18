@@ -119,6 +119,15 @@ header h1 {
     background-color: var(--danger-hover);
 }
 
+.btn-success {
+    background-color: var(--success-color);
+    color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+    background-color: #059669;
+}
+
 .btn-sm {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
@@ -201,6 +210,21 @@ header h1 {
     background-color: #f8fafc;
 }
 
+.keys-table tbody tr.deprecated {
+    opacity: 0.6;
+    background-color: #fef2f2;
+}
+
+.keys-table tbody tr.deprecated:hover {
+    background-color: #fee2e2;
+}
+
+.keys-table tbody tr.deprecated .key-preview,
+.keys-table tbody tr.deprecated td:nth-child(2) {
+    text-decoration: line-through;
+    color: var(--text-secondary);
+}
+
 .key-preview {
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
     font-size: 0.875rem;
@@ -225,6 +249,17 @@ header h1 {
 .key-type.ed25519 { background-color: #dcfce7; color: #166534; }
 .key-type.ecdsa { background-color: #e0e7ff; color: #3730a3; }
 .key-type.dsa { background-color: #fce7f3; color: #9d174d; }
+
+.deprecated-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background-color: #fecaca;
+    color: #991b1b;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-left: 0.5rem;
+}
 
 .no-keys-message {
     text-align: center;

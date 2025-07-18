@@ -40,6 +40,11 @@ class SSHKeyManager {
             this.deleteSelectedKeys();
         });
 
+        // Bulk permanent delete button
+        document.getElementById('bulkPermanentDeleteBtn').addEventListener('click', () => {
+            this.permanentlyDeleteSelectedKeys();
+        });
+
         // Search input
         document.getElementById('searchInput').addEventListener('input', (e) => {
             this.filterKeys(e.target.value);
@@ -127,6 +132,13 @@ class SSHKeyManager {
             option.textContent = flow;
             select.appendChild(option);
         });
+        
+        // Auto-select the first flow if available
+        if (flows.length > 0) {
+            select.value = flows[0];
+            this.currentFlow = flows[0];
+            this.loadKeys();
+        }
     }
 
     async loadKeys() {
@@ -195,16 +207,23 @@ class SSHKeyManager {
             const keyId = `${key.server}-${key.public_key}`;
             
             return `
-                <tr>
+                <tr${key.deprecated ? ' class="deprecated"' : ''}>
                     <td>
                         <input type="checkbox" data-key-id="${keyId}" ${this.selectedKeys.has(keyId) ? 'checked' : ''}>
                     </td>
-                    <td>${this.escapeHtml(key.server)}</td>
+                    <td>
+                        ${this.escapeHtml(key.server)}
+                        ${key.deprecated ? '<span class="deprecated-badge">DEPRECATED</span>' : ''}
+                    </td>
                     <td><span class="key-type ${keyType.toLowerCase()}">${keyType}</span></td>
                     <td><span class="key-preview">${keyPreview}</span></td>
                     <td class="table-actions">
                         <button class="btn btn-sm btn-secondary" onclick="sshKeyManager.viewKey('${keyId}')">View</button>
-                        <button class="btn btn-sm btn-danger" onclick="sshKeyManager.deleteKey('${keyId}')">Delete</button>
+                        ${key.deprecated ? 
+                            `<button class="btn btn-sm btn-success" onclick="sshKeyManager.restoreKey('${keyId}')">Restore</button>
+                             <button class="btn btn-sm btn-danger" onclick="sshKeyManager.permanentlyDeleteKey('${keyId}')">Delete</button>` : 
+                            `<button class="btn btn-sm btn-danger" onclick="sshKeyManager.deleteKey('${keyId}')">Deprecate</button>`
+                        }
                     </td>
                 </tr>
             `;
@@ -277,10 +296,50 @@ class SSHKeyManager {
 
     updateBulkDeleteButton() {
         const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
-        bulkDeleteBtn.disabled = this.selectedKeys.size === 0;
-        bulkDeleteBtn.textContent = this.selectedKeys.size > 0 
-            ? `Delete Selected (${this.selectedKeys.size})` 
-            : 'Delete Selected';
+        const bulkPermanentDeleteBtn = document.getElementById('bulkPermanentDeleteBtn');
+        
+        if (this.selectedKeys.size === 0) {
+            // No keys selected - hide both buttons
+            bulkDeleteBtn.disabled = true;
+            bulkDeleteBtn.textContent = 'Deprecate Selected';
+            bulkPermanentDeleteBtn.style.display = 'none';
+            bulkPermanentDeleteBtn.disabled = true;
+            return;
+        }
+
+        // Count selected active and deprecated keys
+        let activeCount = 0;
+        let deprecatedCount = 0;
+        
+        Array.from(this.selectedKeys).forEach(keyId => {
+            const key = this.findKeyById(keyId);
+            if (key) {
+                if (key.deprecated) {
+                    deprecatedCount++;
+                } else {
+                    activeCount++;
+                }
+            }
+        });
+
+        // Show/hide deprecate button
+        if (activeCount > 0) {
+            bulkDeleteBtn.disabled = false;
+            bulkDeleteBtn.textContent = `Deprecate Selected (${activeCount})`;
+        } else {
+            bulkDeleteBtn.disabled = true;
+            bulkDeleteBtn.textContent = 'Deprecate Selected';
+        }
+
+        // Show/hide permanent delete button
+        if (deprecatedCount > 0) {
+            bulkPermanentDeleteBtn.style.display = 'inline-flex';
+            bulkPermanentDeleteBtn.disabled = false;
+            bulkPermanentDeleteBtn.textContent = `Delete Selected (${deprecatedCount})`;
+        } else {
+            bulkPermanentDeleteBtn.style.display = 'none';
+            bulkPermanentDeleteBtn.disabled = true;
+        }
     }
 
     showAddKeyModal() {
@@ -346,12 +405,17 @@ class SSHKeyManager {
     }
 
     async deleteKey(keyId) {
-        if (!confirm('Are you sure you want to delete this SSH key?')) {
+        const key = this.findKeyById(keyId);
+        if (!key) return;
+        
+        if (key.deprecated) {
+            this.showToast('This key is already deprecated', 'warning');
             return;
         }
 
-        const key = this.findKeyById(keyId);
-        if (!key) return;
+        if (!confirm('Are you sure you want to deprecate this SSH key?')) {
+            return;
+        }
 
         try {
             this.showLoading();
@@ -361,13 +425,79 @@ class SSHKeyManager {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                throw new Error(errorText || 'Failed to delete key');
+                throw new Error(errorText || 'Failed to deprecate key');
             }
 
-            this.showToast('SSH key deleted successfully', 'success');
+            this.showToast('SSH key deprecated successfully', 'success');
             await this.loadKeys();
         } catch (error) {
-            this.showToast('Failed to delete key: ' + error.message, 'error');
+            this.showToast('Failed to deprecate key: ' + error.message, 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    async restoreKey(keyId) {
+        const key = this.findKeyById(keyId);
+        if (!key) return;
+        
+        if (!key.deprecated) {
+            this.showToast('This key is not deprecated', 'warning');
+            return;
+        }
+
+        if (!confirm('Are you sure you want to restore this SSH key from deprecated status?')) {
+            return;
+        }
+
+        try {
+            this.showLoading();
+            const response = await fetch(`/${this.currentFlow}/keys/${encodeURIComponent(key.server)}/restore`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Failed to restore key');
+            }
+
+            this.showToast('SSH key restored successfully', 'success');
+            await this.loadKeys();
+        } catch (error) {
+            this.showToast('Failed to restore key: ' + error.message, 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    async permanentlyDeleteKey(keyId) {
+        const key = this.findKeyById(keyId);
+        if (!key) return;
+
+        if (!confirm('⚠️ Are you sure you want to PERMANENTLY DELETE this SSH key?\n\nThis action cannot be undone!')) {
+            return;
+        }
+
+        // Double confirmation for permanent deletion
+        if (!confirm('This will permanently remove the key from the database.\n\nConfirm permanent deletion?')) {
+            return;
+        }
+
+        try {
+            this.showLoading();
+            const response = await fetch(`/${this.currentFlow}/keys/${encodeURIComponent(key.server)}/delete`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Failed to permanently delete key');
+            }
+
+            this.showToast('SSH key permanently deleted', 'success');
+            await this.loadKeys();
+        } catch (error) {
+            this.showToast('Failed to permanently delete key: ' + error.message, 'error');
         } finally {
             this.hideLoading();
         }
@@ -376,14 +506,25 @@ class SSHKeyManager {
     async deleteSelectedKeys() {
         if (this.selectedKeys.size === 0) return;
 
-        if (!confirm(`Are you sure you want to delete ${this.selectedKeys.size} selected SSH keys?`)) {
+        // Filter out already deprecated keys
+        const activeKeys = Array.from(this.selectedKeys).filter(keyId => {
+            const key = this.findKeyById(keyId);
+            return key && !key.deprecated;
+        });
+
+        if (activeKeys.length === 0) {
+            this.showToast('All selected keys are already deprecated', 'warning');
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to deprecate ${activeKeys.length} selected SSH keys?`)) {
             return;
         }
 
         try {
             this.showLoading();
             
-            const deletePromises = Array.from(this.selectedKeys).map(keyId => {
+            const deprecatePromises = activeKeys.map(keyId => {
                 const key = this.findKeyById(keyId);
                 if (!key) return Promise.resolve();
                 
@@ -392,11 +533,56 @@ class SSHKeyManager {
                 });
             });
 
-            await Promise.all(deletePromises);
-            this.showToast(`${this.selectedKeys.size} SSH keys deleted successfully`, 'success');
+            await Promise.all(deprecatePromises);
+            this.showToast(`${activeKeys.length} SSH keys deprecated successfully`, 'success');
             await this.loadKeys();
         } catch (error) {
-            this.showToast('Failed to delete selected keys: ' + error.message, 'error');
+            this.showToast('Failed to deprecate selected keys: ' + error.message, 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    async permanentlyDeleteSelectedKeys() {
+        if (this.selectedKeys.size === 0) return;
+
+        // Filter only deprecated keys
+        const deprecatedKeys = Array.from(this.selectedKeys).filter(keyId => {
+            const key = this.findKeyById(keyId);
+            return key && key.deprecated;
+        });
+
+        if (deprecatedKeys.length === 0) {
+            this.showToast('No deprecated keys selected', 'warning');
+            return;
+        }
+
+        if (!confirm(`⚠️ Are you sure you want to PERMANENTLY DELETE ${deprecatedKeys.length} deprecated SSH keys?\n\nThis action cannot be undone!`)) {
+            return;
+        }
+
+        // Double confirmation for permanent deletion
+        if (!confirm('This will permanently remove the keys from the database.\n\nConfirm permanent deletion?')) {
+            return;
+        }
+
+        try {
+            this.showLoading();
+            
+            const deletePromises = deprecatedKeys.map(keyId => {
+                const key = this.findKeyById(keyId);
+                if (!key) return Promise.resolve();
+                
+                return fetch(`/${this.currentFlow}/keys/${encodeURIComponent(key.server)}/delete`, {
+                    method: 'DELETE'
+                });
+            });
+
+            await Promise.all(deletePromises);
+            this.showToast(`${deprecatedKeys.length} SSH keys permanently deleted`, 'success');
+            await this.loadKeys();
+        } catch (error) {
+            this.showToast('Failed to permanently delete selected keys: ' + error.message, 'error');
         } finally {
             this.hideLoading();
         }

@@ -1064,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "khm"
-version = "0.5.0"
+version = "0.8.0"
 dependencies = [
  "actix-web",
  "base64 0.21.7",

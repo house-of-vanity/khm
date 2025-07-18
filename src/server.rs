@@ -12,6 +12,8 @@ use crate::db;
 pub struct SshKey {
     pub server: String,
     pub public_key: String,
+    #[serde(default)]
+    pub deprecated: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -37,7 +39,7 @@ pub fn is_valid_ssh_key(key: &str) -> bool {
 
 pub async fn get_keys_from_db(client: &Client) -> Result<Vec<Flow>, tokio_postgres::Error> {
     let rows = client.query(
-        "SELECT k.host, k.key, f.name FROM public.keys k INNER JOIN public.flows f ON k.key_id = f.key_id",
+        "SELECT k.host, k.key, k.deprecated, f.name FROM public.keys k INNER JOIN public.flows f ON k.key_id = f.key_id",
         &[]
     ).await?;
 
@@ -46,11 +48,13 @@ pub async fn get_keys_from_db(client: &Client) -> Result<Vec<Flow>, tokio_postgr
     for row in rows {
         let host: String = row.get(0);
         let key: String = row.get(1);
-        let flow: String = row.get(2);
+        let deprecated: bool = row.get(2);
+        let flow: String = row.get(3);
 
         let ssh_key = SshKey {
             server: host,
             public_key: key,
+            deprecated,
         };
 
         if let Some(flow_entry) = flows_map.get_mut(&flow) {
@@ -327,6 +331,8 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
             // API routes
             .route("/api/flows", web::get().to(crate::web::get_flows_api))
             .route("/{flow_id}/keys/{server}", web::delete().to(crate::web::delete_key_by_server))
+            .route("/{flow_id}/keys/{server}/restore", web::post().to(crate::web::restore_key_by_server))
+            .route("/{flow_id}/keys/{server}/delete", web::delete().to(crate::web::permanently_delete_key_by_server))
             // Original API routes
             .route("/{flow_id}/keys", web::get().to(get_keys))
             .route("/{flow_id}/keys", web::post().to(add_keys))

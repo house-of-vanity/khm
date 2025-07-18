@@ -11,6 +11,8 @@ use std::path::Path;
 struct SshKey {
     server: String,
     public_key: String,
+    #[serde(default)]
+    deprecated: bool,
 }
 
 fn read_known_hosts(file_path: &str) -> io::Result<Vec<SshKey>> {
@@ -26,7 +28,11 @@ fn read_known_hosts(file_path: &str) -> io::Result<Vec<SshKey>> {
                 if parts.len() >= 2 {
                     let server = parts[0].to_string();
                     let public_key = parts[1..].join(" ");
-                    keys.push(SshKey { server, public_key });
+                    keys.push(SshKey { 
+                        server, 
+                        public_key,
+                        deprecated: false,  // Keys from known_hosts are not deprecated
+                    });
                 }
             }
             Err(e) => {
@@ -42,10 +48,14 @@ fn write_known_hosts(file_path: &str, keys: &[SshKey]) -> io::Result<()> {
     let path = Path::new(file_path);
     let mut file = File::create(&path)?;
 
-    for key in keys {
+    // Filter out deprecated keys - they should not be written to known_hosts
+    let active_keys: Vec<&SshKey> = keys.iter().filter(|key| !key.deprecated).collect();
+    let active_count = active_keys.len();
+
+    for key in active_keys {
         writeln!(file, "{} {}", key.server, key.public_key)?;
     }
-    info!("Wrote {} keys to known_hosts file", keys.len());
+    info!("Wrote {} active keys to known_hosts file (filtered out deprecated keys)", active_count);
 
     Ok(())
 }
