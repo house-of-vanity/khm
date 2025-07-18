@@ -1,10 +1,22 @@
 use actix_web::{web, HttpResponse, Result};
 use log::info;
+use rust_embed::RustEmbed;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
 use tokio_postgres::Client;
 
 use crate::server::{get_keys_from_db, Flows};
+
+#[derive(RustEmbed)]
+#[folder = "static/"]
+struct StaticAssets;
+
+#[derive(Deserialize)]
+struct DeleteKeyPath {
+    flow_id: String,
+    server: String,
+}
 
 // API endpoint to get list of available flows
 pub async fn get_flows_api(allowed_flows: web::Data<Vec<String>>) -> Result<HttpResponse> {
@@ -15,13 +27,11 @@ pub async fn get_flows_api(allowed_flows: web::Data<Vec<String>>) -> Result<Http
 // API endpoint to delete a specific key by server name
 pub async fn delete_key_by_server(
     flows: web::Data<Flows>,
-    flow_id: web::Path<String>,
-    server: web::Path<String>,
+    path: web::Path<(String, String)>,
     db_client: web::Data<std::sync::Arc<Client>>,
     allowed_flows: web::Data<Vec<String>>,
 ) -> Result<HttpResponse> {
-    let flow_id_str = flow_id.into_inner();
-    let server_name = server.into_inner();
+    let (flow_id_str, server_name) = path.into_inner();
 
     info!("API request to delete key for server '{}' in flow '{}'", server_name, flow_id_str);
 
@@ -130,36 +140,16 @@ async fn delete_key_from_db(
     Ok(std::cmp::max(flow_delete_count, total_deleted))
 }
 
-// Serve static files
+// Serve static files from embedded assets
 pub async fn serve_static_file(path: web::Path<String>) -> Result<HttpResponse> {
     let file_path = path.into_inner();
     
-    // Get the path to the static directory relative to the executable
-    let exe_path = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let exe_dir = exe_path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let static_dir = exe_dir.join("static");
-    
-    // Fallback to current directory if static dir doesn't exist next to executable
-    let static_dir = if static_dir.exists() {
-        static_dir
-    } else {
-        std::path::PathBuf::from("static")
-    };
-    
-    let full_path = static_dir.join(&file_path);
-
-    // Security check - ensure the path is within the static directory
-    if !full_path.starts_with(&static_dir) {
-        return Ok(HttpResponse::Forbidden().body("Access denied"));
-    }
-
-    if !full_path.exists() {
-        return Ok(HttpResponse::NotFound().body(format!("File not found: {}", full_path.display())));
-    }
-
-    match tokio::fs::read(&full_path).await {
-        Ok(contents) => {
-            let content_type = match full_path.extension().and_then(|s| s.to_str()) {
+    match StaticAssets::get(&file_path) {
+        Some(content) => {
+            let content_type = match std::path::Path::new(&file_path)
+                .extension()
+                .and_then(|s| s.to_str()) 
+            {
                 Some("html") => "text/html; charset=utf-8",
                 Some("css") => "text/css; charset=utf-8",
                 Some("js") => "application/javascript; charset=utf-8",
@@ -171,44 +161,24 @@ pub async fn serve_static_file(path: web::Path<String>) -> Result<HttpResponse> 
 
             Ok(HttpResponse::Ok()
                 .content_type(content_type)
-                .body(contents))
+                .body(content.data.as_ref().to_vec()))
         }
-        Err(e) => {
-            info!("Failed to read file {}: {}", full_path.display(), e);
-            Ok(HttpResponse::InternalServerError().body("Failed to read file"))
+        None => {
+            Ok(HttpResponse::NotFound().body(format!("File not found: {}", file_path)))
         }
     }
 }
 
-// Serve the main web interface
+// Serve the main web interface from embedded assets
 pub async fn serve_web_interface() -> Result<HttpResponse> {
-    // Get the path to the static directory relative to the executable
-    let exe_path = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let exe_dir = exe_path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let static_dir = exe_dir.join("static");
-    
-    // Fallback to current directory if static dir doesn't exist next to executable
-    let static_dir = if static_dir.exists() {
-        static_dir
-    } else {
-        std::path::PathBuf::from("static")
-    };
-    
-    let index_path = static_dir.join("index.html");
-
-    if !index_path.exists() {
-        return Ok(HttpResponse::NotFound().body(format!("Web interface not found: {}", index_path.display())));
-    }
-
-    match tokio::fs::read(&index_path).await {
-        Ok(contents) => {
+    match StaticAssets::get("index.html") {
+        Some(content) => {
             Ok(HttpResponse::Ok()
                 .content_type("text/html; charset=utf-8")
-                .body(contents))
+                .body(content.data.as_ref().to_vec()))
         }
-        Err(e) => {
-            info!("Failed to read index.html: {}", e);
-            Ok(HttpResponse::InternalServerError().body("Failed to load web interface"))
+        None => {
+            Ok(HttpResponse::NotFound().body("Web interface not found"))
         }
     }
 }
