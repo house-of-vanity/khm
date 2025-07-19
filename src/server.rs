@@ -89,6 +89,7 @@ pub async fn get_keys(
     flow_id: web::Path<String>,
     allowed_flows: web::Data<Vec<String>>,
     req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     let client_hostname = get_client_hostname(&req);
     let flow_id_str = flow_id.into_inner();
@@ -108,10 +109,24 @@ pub async fn get_keys(
 
     let flows = flows.lock().unwrap();
     if let Some(flow) = flows.iter().find(|flow| flow.name == flow_id_str) {
-        let servers: Vec<&SshKey> = flow.servers.iter().collect();
+        // Check if we should include deprecated keys (default: false for CLI clients)
+        let include_deprecated = query.get("include_deprecated")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        
+        let servers: Vec<&SshKey> = if include_deprecated {
+            // Return all keys (for web interface)
+            flow.servers.iter().collect()
+        } else {
+            // Return only active keys (for CLI clients)
+            flow.servers.iter().filter(|key| !key.deprecated).collect()
+        };
+        
         info!(
-            "Returning {} keys for flow '{}' to client '{}'",
+            "Returning {} keys ({} total, deprecated filtered: {}) for flow '{}' to client '{}'",
             servers.len(),
+            flow.servers.len(),
+            !include_deprecated,
             flow_id_str,
             client_hostname
         );
