@@ -2,11 +2,9 @@ use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use log::{error, info};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio_postgres::{Client, NoTls};
 
-use crate::db;
+use crate::db::ReconnectingDbClient;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SshKey {
@@ -35,43 +33,6 @@ pub fn is_valid_ssh_key(key: &str) -> bool {
         || dsa_re.is_match(key)
         || ecdsa_re.is_match(key)
         || ed25519_re.is_match(key)
-}
-
-pub async fn get_keys_from_db(client: &Client) -> Result<Vec<Flow>, tokio_postgres::Error> {
-    let rows = client.query(
-        "SELECT k.host, k.key, k.deprecated, f.name FROM public.keys k INNER JOIN public.flows f ON k.key_id = f.key_id",
-        &[]
-    ).await?;
-
-    let mut flows_map: HashMap<String, Flow> = HashMap::new();
-
-    for row in rows {
-        let host: String = row.get(0);
-        let key: String = row.get(1);
-        let deprecated: bool = row.get(2);
-        let flow: String = row.get(3);
-
-        let ssh_key = SshKey {
-            server: host,
-            public_key: key,
-            deprecated,
-        };
-
-        if let Some(flow_entry) = flows_map.get_mut(&flow) {
-            flow_entry.servers.push(ssh_key);
-        } else {
-            flows_map.insert(
-                flow.clone(),
-                Flow {
-                    name: flow,
-                    servers: vec![ssh_key],
-                },
-            );
-        }
-    }
-
-    info!("Retrieved {} flows from database", flows_map.len());
-    Ok(flows_map.into_values().collect())
 }
 
 // Extract client hostname from request headers
@@ -110,10 +71,11 @@ pub async fn get_keys(
     let flows = flows.lock().unwrap();
     if let Some(flow) = flows.iter().find(|flow| flow.name == flow_id_str) {
         // Check if we should include deprecated keys (default: false for CLI clients)
-        let include_deprecated = query.get("include_deprecated")
+        let include_deprecated = query
+            .get("include_deprecated")
             .map(|v| v == "true")
             .unwrap_or(false);
-        
+
         let servers: Vec<&SshKey> = if include_deprecated {
             // Return all keys (for web interface)
             flow.servers.iter().collect()
@@ -121,7 +83,7 @@ pub async fn get_keys(
             // Return only active keys (for CLI clients)
             flow.servers.iter().filter(|key| !key.deprecated).collect()
         };
-        
+
         info!(
             "Returning {} keys ({} total, deprecated filtered: {}) for flow '{}' to client '{}'",
             servers.len(),
@@ -144,7 +106,7 @@ pub async fn add_keys(
     flows: web::Data<Flows>,
     flow_id: web::Path<String>,
     new_keys: web::Json<Vec<SshKey>>,
-    db_client: web::Data<Arc<Client>>,
+    db_client: web::Data<Arc<ReconnectingDbClient>>,
     allowed_flows: web::Data<Vec<String>>,
     req: HttpRequest,
 ) -> impl Responder {
@@ -190,7 +152,10 @@ pub async fn add_keys(
     );
 
     // Batch insert keys with statistics
-    let key_stats = match crate::db::batch_insert_keys(&db_client, &valid_keys).await {
+    let key_stats = match db_client
+        .batch_insert_keys_reconnecting(valid_keys.clone())
+        .await
+    {
         Ok(stats) => stats,
         Err(e) => {
             error!(
@@ -208,7 +173,9 @@ pub async fn add_keys(
         let key_ids: Vec<i32> = key_stats.key_id_map.iter().map(|(_, id)| *id).collect();
 
         // Batch insert key-flow associations
-        if let Err(e) = crate::db::batch_insert_flow_keys(&db_client, &flow_id_str, &key_ids).await
+        if let Err(e) = db_client
+            .batch_insert_flow_keys_reconnecting(flow_id_str.clone(), key_ids.clone())
+            .await
         {
             error!(
                 "Failed to batch insert flow keys from client '{}' into database: {}",
@@ -232,7 +199,7 @@ pub async fn add_keys(
     }
 
     // Get updated data
-    let updated_flows = match get_keys_from_db(&db_client).await {
+    let updated_flows = match db_client.get_keys_from_db_reconnecting().await {
         Ok(flows) => flows,
         Err(e) => {
             error!(
@@ -287,28 +254,22 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
         args.db_host, db_user, db_password, args.db_name
     );
 
-    info!("Connecting to database at {}", args.db_host);
-    let (db_client, connection) = match tokio_postgres::connect(&db_conn_str, NoTls).await {
-        Ok((client, conn)) => (client, conn),
-        Err(e) => {
-            error!("Failed to connect to the database: {}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::ConnectionRefused,
-                format!("Database connection error: {}", e),
-            ));
-        }
-    };
-    let db_client = Arc::new(db_client);
+    info!("Creating database client for {}", args.db_host);
+    let mut db_client_temp = ReconnectingDbClient::new(db_conn_str.clone());
 
-    // Spawn a new thread to run the database connection
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            error!("Connection error: {}", e);
-        }
-    });
+    // Initial connection
+    if let Err(e) = db_client_temp.connect(&db_conn_str).await {
+        error!("Failed to connect to the database: {}", e);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            format!("Database connection error: {}", e),
+        ));
+    }
+
+    let db_client = Arc::new(db_client_temp);
 
     // Initialize database schema if needed
-    if let Err(e) = db::initialize_db_schema(&db_client).await {
+    if let Err(e) = db_client.initialize_schema().await {
         error!("Failed to initialize database schema: {}", e);
         return Err(std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -316,7 +277,7 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
         ));
     }
 
-    let mut initial_flows = match get_keys_from_db(&db_client).await {
+    let mut initial_flows = match db_client.get_keys_from_db_reconnecting().await {
         Ok(flows) => flows,
         Err(e) => {
             error!("Failed to get initial flows from database: {}", e);
@@ -345,15 +306,27 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
             .app_data(allowed_flows.clone())
             // API routes
             .route("/api/flows", web::get().to(crate::web::get_flows_api))
-            .route("/{flow_id}/keys/{server}", web::delete().to(crate::web::delete_key_by_server))
-            .route("/{flow_id}/keys/{server}/restore", web::post().to(crate::web::restore_key_by_server))
-            .route("/{flow_id}/keys/{server}/delete", web::delete().to(crate::web::permanently_delete_key_by_server))
+            .route(
+                "/{flow_id}/keys/{server}",
+                web::delete().to(crate::web::delete_key_by_server),
+            )
+            .route(
+                "/{flow_id}/keys/{server}/restore",
+                web::post().to(crate::web::restore_key_by_server),
+            )
+            .route(
+                "/{flow_id}/keys/{server}/delete",
+                web::delete().to(crate::web::permanently_delete_key_by_server),
+            )
             // Original API routes
             .route("/{flow_id}/keys", web::get().to(get_keys))
             .route("/{flow_id}/keys", web::post().to(add_keys))
             // Web interface routes
             .route("/", web::get().to(crate::web::serve_web_interface))
-            .route("/static/{filename:.*}", web::get().to(crate::web::serve_static_file))
+            .route(
+                "/static/{filename:.*}",
+                web::get().to(crate::web::serve_static_file),
+            )
     })
     .bind((args.ip.as_str(), args.port))?
     .run()

@@ -28,10 +28,10 @@ fn read_known_hosts(file_path: &str) -> io::Result<Vec<SshKey>> {
                 if parts.len() >= 2 {
                     let server = parts[0].to_string();
                     let public_key = parts[1..].join(" ");
-                    keys.push(SshKey { 
-                        server, 
+                    keys.push(SshKey {
+                        server,
                         public_key,
-                        deprecated: false,  // Keys from known_hosts are not deprecated
+                        deprecated: false, // Keys from known_hosts are not deprecated
                     });
                 }
             }
@@ -55,7 +55,10 @@ fn write_known_hosts(file_path: &str, keys: &[SshKey]) -> io::Result<()> {
     for key in active_keys {
         writeln!(file, "{} {}", key.server, key.public_key)?;
     }
-    info!("Wrote {} active keys to known_hosts file (filtered out deprecated keys)", active_count);
+    info!(
+        "Wrote {} active keys to known_hosts file (filtered out deprecated keys)",
+        active_count
+    );
 
     Ok(())
 }
@@ -172,12 +175,15 @@ async fn get_keys_from_server(
 
 pub async fn run_client(args: crate::Args) -> std::io::Result<()> {
     info!("Client mode: Reading known_hosts file");
-    
+
     let keys = match read_known_hosts(&args.known_hosts) {
         Ok(keys) => keys,
         Err(e) => {
             if e.kind() == io::ErrorKind::NotFound {
-                info!("known_hosts file not found: {}. Starting with empty key list.", args.known_hosts);
+                info!(
+                    "known_hosts file not found: {}. Starting with empty key list.",
+                    args.known_hosts
+                );
                 Vec::new()
             } else {
                 error!("Failed to read known_hosts file: {}", e);
@@ -188,10 +194,13 @@ pub async fn run_client(args: crate::Args) -> std::io::Result<()> {
 
     let host = args.host.expect("host is required in client mode");
     info!("Client mode: Sending keys to server at {}", host);
-    
+
     if let Err(e) = send_keys_to_server(&host, keys, &args.basic_auth).await {
         error!("Failed to send keys to server: {}", e);
-        return Err(io::Error::new(io::ErrorKind::Other, format!("Network error: {}", e)));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Network error: {}", e),
+        ));
     }
 
     if args.in_place {
@@ -200,7 +209,10 @@ pub async fn run_client(args: crate::Args) -> std::io::Result<()> {
             Ok(keys) => keys,
             Err(e) => {
                 error!("Failed to get keys from server: {}", e);
-                return Err(io::Error::new(io::ErrorKind::Other, format!("Network error: {}", e)));
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Network error: {}", e),
+                ));
             }
         };
 

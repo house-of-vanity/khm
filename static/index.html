@@ -36,6 +36,14 @@
                 <button id="addKeyBtn" class="btn btn-primary">Add SSH Key</button>
                 <button id="bulkDeleteBtn" class="btn btn-danger" disabled>Deprecate Selected</button>
                 <button id="bulkPermanentDeleteBtn" class="btn btn-danger" disabled style="display: none;">Delete Selected</button>
+                
+                <div class="filter-controls">
+                    <label class="filter-label">
+                        <input type="checkbox" id="showDeprecatedOnly"> 
+                        <span>Show only deprecated keys</span>
+                    </label>
+                </div>
+                
                 <div class="search-box">
                     <input type="text" id="searchInput" placeholder="Search servers or keys...">
                 </div>
@@ -48,9 +56,9 @@
                             <th>
                                 <input type="checkbox" id="selectAll">
                             </th>
-                            <th>Server</th>
-                            <th>Key Type</th>
+                            <th>Server/Type</th>
                             <th>Key Preview</th>
+                            <th></th>
                             <th>Actions</th>
                         </tr>
                     </thead>

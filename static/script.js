@@ -3,9 +3,13 @@ class SSHKeyManager {
         this.currentFlow = null;
         this.keys = [];
         this.filteredKeys = [];
+        this.groupedKeys = {};
+        this.expandedGroups = new Set();
         this.currentPage = 1;
         this.keysPerPage = 20;
+        this.serversPerPage = 10;
         this.selectedKeys = new Set();
+        this.showDeprecatedOnly = false;
         
         this.initializeEventListeners();
         this.loadFlows();
@@ -48,6 +52,21 @@ class SSHKeyManager {
         // Search input
         document.getElementById('searchInput').addEventListener('input', (e) => {
             this.filterKeys(e.target.value);
+        });
+
+        // Deprecated filter checkbox
+        document.getElementById('showDeprecatedOnly').addEventListener('change', (e) => {
+            this.showDeprecatedOnly = e.target.checked;
+            
+            // Update visual state
+            const filterLabel = e.target.closest('.filter-label');
+            if (e.target.checked) {
+                filterLabel.classList.add('active');
+            } else {
+                filterLabel.classList.remove('active');
+            }
+            
+            this.filterKeys(document.getElementById('searchInput').value);
         });
 
         // Select all checkbox
@@ -146,11 +165,12 @@ class SSHKeyManager {
 
         try {
             this.showLoading();
-            const response = await fetch(`/${this.currentFlow}/keys`);
+            const response = await fetch(`/${this.currentFlow}/keys?include_deprecated=true`);
             if (!response.ok) throw new Error('Failed to load keys');
             
             this.keys = await response.json();
-            this.filteredKeys = [...this.keys];
+            this.groupKeys();
+            this.filterKeys();
             this.updateStats();
             this.renderTable();
             this.selectedKeys.clear();
@@ -163,16 +183,37 @@ class SSHKeyManager {
         }
     }
 
+    groupKeys() {
+        this.groupedKeys = {};
+        this.keys.forEach(key => {
+            if (!this.groupedKeys[key.server]) {
+                this.groupedKeys[key.server] = [];
+            }
+            this.groupedKeys[key.server].push(key);
+        });
+        
+        // Groups are closed by default - no auto-expand
+    }
+
     filterKeys(searchTerm) {
-        if (!searchTerm.trim()) {
-            this.filteredKeys = [...this.keys];
+        let keys = [...this.keys];
+        
+        // Apply deprecated filter first
+        if (this.showDeprecatedOnly) {
+            keys = keys.filter(key => key.deprecated);
+        }
+        
+        // Then apply search filter
+        if (!searchTerm || !searchTerm.trim()) {
+            this.filteredKeys = keys;
         } else {
             const term = searchTerm.toLowerCase();
-            this.filteredKeys = this.keys.filter(key => 
+            this.filteredKeys = keys.filter(key => 
                 key.server.toLowerCase().includes(term) || 
                 key.public_key.toLowerCase().includes(term)
             );
         }
+        
         this.currentPage = 1;
         this.renderTable();
     }
@@ -182,6 +223,17 @@ class SSHKeyManager {
         
         const uniqueServers = new Set(this.keys.map(key => key.server));
         document.getElementById('uniqueServers').textContent = uniqueServers.size;
+    }
+
+    getGroupedFilteredKeys() {
+        const groupedFilteredKeys = {};
+        this.filteredKeys.forEach(key => {
+            if (!groupedFilteredKeys[key.server]) {
+                groupedFilteredKeys[key.server] = [];
+            }
+            groupedFilteredKeys[key.server].push(key);
+        });
+        return groupedFilteredKeys;
     }
 
     renderTable() {
@@ -197,37 +249,78 @@ class SSHKeyManager {
 
         noKeysMessage.style.display = 'none';
         
-        const startIndex = (this.currentPage - 1) * this.keysPerPage;
-        const endIndex = startIndex + this.keysPerPage;
-        const pageKeys = this.filteredKeys.slice(startIndex, endIndex);
+        // Group filtered keys by server
+        const groupedFilteredKeys = this.getGroupedFilteredKeys();
         
-        tbody.innerHTML = pageKeys.map((key, index) => {
-            const keyType = this.getKeyType(key.public_key);
-            const keyPreview = this.getKeyPreview(key.public_key);
-            const keyId = `${key.server}-${key.public_key}`;
+        // Calculate pagination for grouped view
+        const servers = Object.keys(groupedFilteredKeys).sort();
+        
+        // For pagination, we'll show a reasonable number of server groups per page
+        const startServerIndex = (this.currentPage - 1) * this.serversPerPage;
+        const endServerIndex = startServerIndex + this.serversPerPage;
+        const pageServers = servers.slice(startServerIndex, endServerIndex);
+        
+        let html = '';
+        
+        pageServers.forEach(server => {
+            const serverKeys = groupedFilteredKeys[server];
+            const activeCount = serverKeys.filter(k => !k.deprecated).length;
+            const deprecatedCount = serverKeys.filter(k => k.deprecated).length;
+            const isExpanded = this.expandedGroups.has(server);
             
-            return `
-                <tr${key.deprecated ? ' class="deprecated"' : ''}>
+            // Server group header
+            html += `
+                <tr class="host-group-header ${isExpanded ? '' : 'collapsed'}">
                     <td>
-                        <input type="checkbox" data-key-id="${keyId}" ${this.selectedKeys.has(keyId) ? 'checked' : ''}>
+                        <input type="checkbox" 
+                               data-group="${this.escapeHtml(server)}" 
+                               onchange="sshKeyManager.toggleGroupSelection('${this.escapeHtml(server)}', this.checked)"
+                               onclick="event.stopPropagation()">
                     </td>
-                    <td>
-                        ${this.escapeHtml(key.server)}
-                        ${key.deprecated ? '<span class="deprecated-badge">DEPRECATED</span>' : ''}
-                    </td>
-                    <td><span class="key-type ${keyType.toLowerCase()}">${keyType}</span></td>
-                    <td><span class="key-preview">${keyPreview}</span></td>
-                    <td class="table-actions">
-                        <button class="btn btn-sm btn-secondary" onclick="sshKeyManager.viewKey('${keyId}')">View</button>
-                        ${key.deprecated ? 
-                            `<button class="btn btn-sm btn-success" onclick="sshKeyManager.restoreKey('${keyId}')">Restore</button>
-                             <button class="btn btn-sm btn-danger" onclick="sshKeyManager.permanentlyDeleteKey('${keyId}')">Delete</button>` : 
-                            `<button class="btn btn-sm btn-danger" onclick="sshKeyManager.deleteKey('${keyId}')">Deprecate</button>`
-                        }
+                    <td colspan="4" onclick="sshKeyManager.toggleGroup('${this.escapeHtml(server)}')" style="cursor: pointer;">
+                        <span class="expand-icon">${isExpanded ? '▼' : '▶'}</span>
+                        <strong>${this.escapeHtml(server)}</strong>
+                        <span class="host-summary">
+                            <span class="key-count">${serverKeys.length} keys</span>
+                            ${deprecatedCount > 0 ? `<span class="deprecated-count">${deprecatedCount} deprecated</span>` : ''}
+                        </span>
                     </td>
                 </tr>
             `;
-        }).join('');
+            
+            // Server keys (if expanded)
+            if (isExpanded) {
+                serverKeys.forEach(key => {
+                    const keyType = this.getKeyType(key.public_key);
+                    const keyPreview = this.getKeyPreview(key.public_key);
+                    const keyId = `${key.server}-${key.public_key}`;
+                    
+                    html += `
+                        <tr class="key-row${key.deprecated ? ' deprecated' : ''}">
+                            <td>
+                                <input type="checkbox" data-key-id="${keyId}" ${this.selectedKeys.has(keyId) ? 'checked' : ''}>
+                            </td>
+                            <td style="padding-left: 2rem;">
+                                <span class="key-type ${keyType.toLowerCase()}">${keyType}</span>
+                                ${key.deprecated ? '<span class="deprecated-badge">DEPRECATED</span>' : ''}
+                            </td>
+                            <td><span class="key-preview">${keyPreview}</span></td>
+                            <td></td>
+                            <td class="table-actions">
+                                <button class="btn btn-sm btn-secondary" onclick="sshKeyManager.viewKey('${keyId}')">View</button>
+                                ${key.deprecated ? 
+                                    `<button class="btn btn-sm btn-success" onclick="sshKeyManager.restoreKey('${keyId}')">Restore</button>
+                                     <button class="btn btn-sm btn-danger" onclick="sshKeyManager.permanentlyDeleteKey('${keyId}')">Delete</button>` : 
+                                    `<button class="btn btn-sm btn-danger" onclick="sshKeyManager.deleteKey('${keyId}')">Deprecate</button>`
+                                }
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+        });
+        
+        tbody.innerHTML = html;
 
         // Add event listeners for checkboxes
         tbody.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
@@ -240,14 +333,78 @@ class SSHKeyManager {
                 }
                 this.updateBulkDeleteButton();
                 this.updateSelectAllCheckbox();
+                this.updateGroupCheckboxes(); // Update group checkboxes when individual keys change
             });
         });
 
+        // Update group checkboxes to show correct indeterminate state
+        this.updateGroupCheckboxes();
         this.updatePagination();
     }
 
+    toggleGroup(server) {
+        if (this.expandedGroups.has(server)) {
+            this.expandedGroups.delete(server);
+        } else {
+            this.expandedGroups.add(server);
+        }
+        this.renderTable();
+    }
+
+    toggleGroupSelection(server, isChecked) {
+        const groupedFilteredKeys = this.getGroupedFilteredKeys();
+        const serverKeys = groupedFilteredKeys[server] || [];
+        
+        serverKeys.forEach(key => {
+            const keyId = `${key.server}-${key.public_key}`;
+            if (isChecked) {
+                this.selectedKeys.add(keyId);
+            } else {
+                this.selectedKeys.delete(keyId);
+            }
+        });
+        
+        this.updateBulkDeleteButton();
+        this.updateSelectAllCheckbox();
+        this.updateGroupCheckboxes();
+        
+        // Update individual checkboxes without full re-render
+        const tbody = document.getElementById('keysTableBody');
+        serverKeys.forEach(key => {
+            const keyId = `${key.server}-${key.public_key}`;
+            const checkbox = tbody.querySelector(`input[data-key-id="${keyId}"]`);
+            if (checkbox) {
+                checkbox.checked = this.selectedKeys.has(keyId);
+            }
+        });
+    }
+
+    updateGroupCheckboxes() {
+        const groupedFilteredKeys = this.getGroupedFilteredKeys();
+        const tbody = document.getElementById('keysTableBody');
+        
+        Object.keys(groupedFilteredKeys).forEach(server => {
+            const serverKeys = groupedFilteredKeys[server];
+            const groupCheckbox = tbody.querySelector(`input[data-group="${server}"]`);
+            
+            if (groupCheckbox) {
+                const allSelected = serverKeys.every(key => 
+                    this.selectedKeys.has(`${key.server}-${key.public_key}`)
+                );
+                const someSelected = serverKeys.some(key => 
+                    this.selectedKeys.has(`${key.server}-${key.public_key}`)
+                );
+                
+                groupCheckbox.checked = allSelected;
+                groupCheckbox.indeterminate = someSelected && !allSelected;
+            }
+        });
+    }
+
     updatePagination() {
-        const totalPages = Math.ceil(this.filteredKeys.length / this.keysPerPage);
+        const groupedFilteredKeys = this.getGroupedFilteredKeys();
+        const totalServers = Object.keys(groupedFilteredKeys).length;
+        const totalPages = Math.ceil(totalServers / this.serversPerPage);
         
         document.getElementById('pageInfo').textContent = `Page ${this.currentPage} of ${totalPages}`;
         document.getElementById('prevPage').disabled = this.currentPage <= 1;
@@ -255,7 +412,10 @@ class SSHKeyManager {
     }
 
     changePage(newPage) {
-        const totalPages = Math.ceil(this.filteredKeys.length / this.keysPerPage);
+        const groupedFilteredKeys = this.getGroupedFilteredKeys();
+        const totalServers = Object.keys(groupedFilteredKeys).length;
+        const totalPages = Math.ceil(totalServers / this.serversPerPage);
+        
         if (newPage >= 1 && newPage <= totalPages) {
             this.currentPage = newPage;
             this.renderTable();

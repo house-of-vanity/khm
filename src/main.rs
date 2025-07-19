@@ -126,8 +126,14 @@ async fn main() -> std::io::Result<()> {
         eprintln!("Error: You must specify either server mode (--server) or client mode (--host)");
         eprintln!();
         eprintln!("Examples:");
-        eprintln!("  Server mode: {} --server --db-user admin --db-password pass --flows work,home", env!("CARGO_PKG_NAME"));
-        eprintln!("  Client mode: {} --host https://khm.example.com/work", env!("CARGO_PKG_NAME"));
+        eprintln!(
+            "  Server mode: {} --server --db-user admin --db-password pass --flows work,home",
+            env!("CARGO_PKG_NAME")
+        );
+        eprintln!(
+            "  Client mode: {} --host https://khm.example.com/work",
+            env!("CARGO_PKG_NAME")
+        );
         eprintln!();
         eprintln!("Use --help for more information.");
         std::process::exit(1);

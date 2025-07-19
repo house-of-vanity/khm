@@ -170,6 +170,46 @@ header h1 {
     flex-wrap: wrap;
 }
 
+.filter-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.filter-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--border-radius);
+    transition: background-color 0.2s ease;
+}
+
+.filter-label:hover {
+    background-color: var(--background);
+}
+
+.filter-label.active {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.filter-label.active input[type="checkbox"] {
+    accent-color: white;
+}
+
+.filter-label input[type="checkbox"] {
+    margin: 0;
+}
+
+.filter-label span {
+    white-space: nowrap;
+}
+
 .search-box input {
     padding: 0.5rem 1rem;
     border: 1px solid var(--border);
@@ -223,6 +263,79 @@ header h1 {
 .keys-table tbody tr.deprecated td:nth-child(2) {
     text-decoration: line-through;
     color: var(--text-secondary);
+}
+
+.host-group-header {
+    background-color: #f1f5f9;
+    font-weight: 600;
+    transition: background-color 0.2s ease;
+    border-left: 4px solid var(--primary-color);
+}
+
+.host-group-header:hover {
+    background-color: #e2e8f0;
+}
+
+.host-group-header.collapsed {
+    border-left-color: var(--secondary-color);
+}
+
+.host-group-header .expand-icon {
+    transition: transform 0.2s ease;
+    display: inline-block;
+    margin-right: 0.5rem;
+    user-select: none;
+}
+
+.host-group-header.collapsed .expand-icon {
+    transform: rotate(-90deg);
+}
+
+.host-group-header input[type="checkbox"] {
+    margin: 0;
+}
+
+.host-group-header td:first-child {
+    width: 50px;
+    text-align: center;
+}
+
+.host-group-header td:nth-child(2) {
+    cursor: pointer;
+    user-select: none;
+}
+
+.key-row {
+    border-left: 4px solid transparent;
+}
+
+.key-row.hidden {
+    display: none;
+}
+
+.host-summary {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.key-count {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-left: 0.5rem;
+}
+
+.deprecated-count {
+    background-color: var(--danger-color);
+    color: white;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-left: 0.25rem;
 }
 
 .key-preview {
@@ -480,6 +593,11 @@ header h1 {
     .actions-panel {
         flex-direction: column;
         align-items: stretch;
+        gap: 1rem;
+    }
+
+    .filter-controls {
+        justify-content: center;
     }
 
     .search-box input {
@@ -513,6 +631,13 @@ input[type="checkbox"] {
     width: 1rem;
     height: 1rem;
     accent-color: var(--primary-color);
+}
+
+/* Indeterminate checkbox styling */
+input[type="checkbox"]:indeterminate {
+    background-color: var(--primary-color);
+    background-image: linear-gradient(90deg, transparent 40%, white 40%, white 60%, transparent 60%);
+    border-color: var(--primary-color);
 }
 
 /* Action buttons in table */
