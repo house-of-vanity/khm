@@ -22,7 +22,7 @@ use log::{error, info};
     khm --server --ip 0.0.0.0 --port 1337 --db-host psql.psql.svc --db-name khm --db-user admin --db-password <SECRET> --flows work,home\n\
     \n\
     Running in client mode to send diff and sync ~/.ssh/known_hosts with remote flow `work` in place:\n\
-    khm --host https://khm.example.com/work --known-hosts ~/.ssh/known_hosts --in-place\n\
+    khm --host https://khm.example.com --flow work --known-hosts ~/.ssh/known_hosts --in-place\n\
     \n\
     "
 )]
@@ -96,9 +96,17 @@ struct Args {
     #[arg(
         long,
         required_if_eq("server", "false"),
-        help = "Client mode: Full host address of the server to connect to. Like https://khm.example.com/<FLOW_NAME>"
+        help = "Client mode: Full host address of the server to connect to. Like https://khm.example.com"
     )]
     host: Option<String>,
+
+    /// Flow name to use on the server
+    #[arg(
+        long,
+        required_if_eq("server", "false"),
+        help = "Client mode: Flow name to use on the server"
+    )]
+    flow: Option<String>,
 
     /// Path to the known_hosts file (default: ~/.ssh/known_hosts)
     #[arg(
@@ -121,9 +129,9 @@ async fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
     // Check if we have the minimum required arguments
-    if !args.server && args.host.is_none() {
+    if !args.server && (args.host.is_none() || args.flow.is_none()) {
         // Neither server mode nor client mode properly configured
-        eprintln!("Error: You must specify either server mode (--server) or client mode (--host)");
+        eprintln!("Error: You must specify either server mode (--server) or client mode (--host and --flow)");
         eprintln!();
         eprintln!("Examples:");
         eprintln!(
@@ -131,7 +139,7 @@ async fn main() -> std::io::Result<()> {
             env!("CARGO_PKG_NAME")
         );
         eprintln!(
-            "  Client mode: {} --host https://khm.example.com/work",
+            "  Client mode: {} --host https://khm.example.com --flow work",
             env!("CARGO_PKG_NAME")
         );
         eprintln!();

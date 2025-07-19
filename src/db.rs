@@ -1,5 +1,5 @@
 use crate::server::SshKey;
-use log::{error, info, warn};
+use log::{error, info};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use tokio_postgres::tls::NoTlsStream;

@@ -193,9 +193,12 @@ pub async fn run_client(args: crate::Args) -> std::io::Result<()> {
     };
 
     let host = args.host.expect("host is required in client mode");
-    info!("Client mode: Sending keys to server at {}", host);
+    let flow = args.flow.expect("flow is required in client mode");
+    let url = format!("{}/{}", host, flow);
 
-    if let Err(e) = send_keys_to_server(&host, keys, &args.basic_auth).await {
+    info!("Client mode: Sending keys to server at {}", url);
+
+    if let Err(e) = send_keys_to_server(&url, keys, &args.basic_auth).await {
         error!("Failed to send keys to server: {}", e);
         return Err(io::Error::new(
             io::ErrorKind::Other,
@@ -205,7 +208,7 @@ pub async fn run_client(args: crate::Args) -> std::io::Result<()> {
 
     if args.in_place {
         info!("Client mode: In-place update is enabled. Fetching keys from server.");
-        let server_keys = match get_keys_from_server(&host, &args.basic_auth).await {
+        let server_keys = match get_keys_from_server(&url, &args.basic_auth).await {
             Ok(keys) => keys,
             Err(e) => {
                 error!("Failed to get keys from server: {}", e);
