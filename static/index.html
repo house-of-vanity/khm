@@ -27,6 +27,14 @@
                     <span class="stat-label">Total Keys</span>
                 </div>
                 <div class="stat-item">
+                    <span class="stat-value" id="activeKeys">0</span>
+                    <span class="stat-label">Active Keys</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value deprecated" id="deprecatedKeys">0</span>
+                    <span class="stat-label">Deprecated Keys</span>
+                </div>
+                <div class="stat-item">
                     <span class="stat-value" id="uniqueServers">0</span>
                     <span class="stat-label">Unique Servers</span>
                 </div>
@@ -34,7 +42,9 @@
 
             <div class="actions-panel">
                 <button id="addKeyBtn" class="btn btn-primary">Add SSH Key</button>
+                <button id="scanDnsBtn" class="btn btn-secondary">Scan DNS Resolution</button>
                 <button id="bulkDeleteBtn" class="btn btn-danger" disabled>Deprecate Selected</button>
+                <button id="bulkRestoreBtn" class="btn btn-success" disabled style="display: none;">Restore Selected</button>
                 <button id="bulkPermanentDeleteBtn" class="btn btn-danger" disabled style="display: none;">Delete Selected</button>
                 
                 <div class="filter-controls">
@@ -124,6 +134,30 @@
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" id="closeView">Close</button>
                     <button type="button" class="btn btn-primary" id="copyKey">Copy Key</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DNS Scan Results Modal -->
+    <div id="dnsScanModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>DNS Resolution Scan Results</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="dnsScanStats" class="scan-stats"></div>
+                <div id="unresolvedHosts" class="unresolved-hosts">
+                    <div class="section-header">
+                        <h3>Unresolved Hosts</h3>
+                        <button id="selectAllUnresolved" class="btn btn-sm btn-secondary">Select All</button>
+                    </div>
+                    <div id="unresolvedList" class="host-list"></div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="closeDnsScan">Close</button>
+                    <button type="button" class="btn btn-danger" id="deprecateUnresolved" disabled>Deprecate Selected</button>
                 </div>
             </div>
         </div>

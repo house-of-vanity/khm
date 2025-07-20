@@ -39,9 +39,19 @@ class SSHKeyManager {
             this.showAddKeyModal();
         });
 
+        // Scan DNS button
+        document.getElementById('scanDnsBtn').addEventListener('click', () => {
+            this.scanDnsResolution();
+        });
+
         // Bulk delete button
         document.getElementById('bulkDeleteBtn').addEventListener('click', () => {
             this.deleteSelectedKeys();
+        });
+
+        // Bulk restore button
+        document.getElementById('bulkRestoreBtn').addEventListener('click', () => {
+            this.restoreSelectedKeys();
         });
 
         // Bulk permanent delete button
@@ -108,6 +118,19 @@ class SSHKeyManager {
 
         document.getElementById('copyKey').addEventListener('click', () => {
             this.copyKeyToClipboard();
+        });
+
+        // DNS scan modal
+        document.getElementById('closeDnsScan').addEventListener('click', () => {
+            this.hideModal('dnsScanModal');
+        });
+
+        document.getElementById('selectAllUnresolved').addEventListener('click', () => {
+            this.toggleSelectAllUnresolved();
+        });
+
+        document.getElementById('deprecateUnresolved').addEventListener('click', () => {
+            this.deprecateSelectedUnresolved();
         });
 
         // Close modals when clicking on close button or outside
@@ -219,9 +242,14 @@ class SSHKeyManager {
     }
 
     updateStats() {
-        document.getElementById('totalKeys').textContent = this.keys.length;
-        
+        const totalKeys = this.keys.length;
+        const deprecatedKeys = this.keys.filter(key => key.deprecated).length;
+        const activeKeys = totalKeys - deprecatedKeys;
         const uniqueServers = new Set(this.keys.map(key => key.server));
+        
+        document.getElementById('totalKeys').textContent = totalKeys;
+        document.getElementById('activeKeys').textContent = activeKeys;
+        document.getElementById('deprecatedKeys').textContent = deprecatedKeys;
         document.getElementById('uniqueServers').textContent = uniqueServers.size;
     }
 
@@ -456,12 +484,15 @@ class SSHKeyManager {
 
     updateBulkDeleteButton() {
         const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+        const bulkRestoreBtn = document.getElementById('bulkRestoreBtn');
         const bulkPermanentDeleteBtn = document.getElementById('bulkPermanentDeleteBtn');
         
         if (this.selectedKeys.size === 0) {
-            // No keys selected - hide both buttons
+            // No keys selected - hide all buttons
             bulkDeleteBtn.disabled = true;
             bulkDeleteBtn.textContent = 'Deprecate Selected';
+            bulkRestoreBtn.style.display = 'none';
+            bulkRestoreBtn.disabled = true;
             bulkPermanentDeleteBtn.style.display = 'none';
             bulkPermanentDeleteBtn.disabled = true;
             return;
@@ -489,6 +520,16 @@ class SSHKeyManager {
         } else {
             bulkDeleteBtn.disabled = true;
             bulkDeleteBtn.textContent = 'Deprecate Selected';
+        }
+
+        // Show/hide restore button
+        if (deprecatedCount > 0) {
+            bulkRestoreBtn.style.display = 'inline-flex';
+            bulkRestoreBtn.disabled = false;
+            bulkRestoreBtn.textContent = `Restore Selected (${deprecatedCount})`;
+        } else {
+            bulkRestoreBtn.style.display = 'none';
+            bulkRestoreBtn.disabled = true;
         }
 
         // Show/hide permanent delete button
@@ -703,6 +744,56 @@ class SSHKeyManager {
         }
     }
 
+    async restoreSelectedKeys() {
+        if (this.selectedKeys.size === 0) return;
+
+        // Filter only deprecated keys
+        const deprecatedKeys = Array.from(this.selectedKeys).filter(keyId => {
+            const key = this.findKeyById(keyId);
+            return key && key.deprecated;
+        });
+
+        if (deprecatedKeys.length === 0) {
+            this.showToast('No deprecated keys selected', 'warning');
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to restore ${deprecatedKeys.length} deprecated SSH keys?`)) {
+            return;
+        }
+
+        // Get unique server names
+        const serverNames = [...new Set(deprecatedKeys.map(keyId => {
+            const key = this.findKeyById(keyId);
+            return key ? key.server : null;
+        }).filter(Boolean))];
+
+        try {
+            this.showLoading();
+            
+            const response = await fetch(`/${this.currentFlow}/bulk-restore`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ servers: serverNames })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Failed to restore keys');
+            }
+
+            const result = await response.json();
+            this.showToast(result.message, 'success');
+            await this.loadKeys();
+        } catch (error) {
+            this.showToast('Failed to restore selected keys: ' + error.message, 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
     async permanentlyDeleteSelectedKeys() {
         if (this.selectedKeys.size === 0) return;
 
@@ -805,6 +896,8 @@ class SSHKeyManager {
         document.getElementById('keysTableBody').innerHTML = '';
         document.getElementById('noKeysMessage').style.display = 'block';
         document.getElementById('totalKeys').textContent = '0';
+        document.getElementById('activeKeys').textContent = '0';
+        document.getElementById('deprecatedKeys').textContent = '0';
         document.getElementById('uniqueServers').textContent = '0';
         this.selectedKeys.clear();
         this.updateBulkDeleteButton();
@@ -848,6 +941,150 @@ class SSHKeyManager {
                 }
             }, 300);
         }, 4000);
+    }
+
+    // DNS Resolution Scanning
+    async scanDnsResolution() {
+        if (!this.currentFlow) {
+            this.showToast('Please select a flow first', 'warning');
+            return;
+        }
+
+        try {
+            this.showLoading();
+            const response = await fetch(`/${this.currentFlow}/scan-dns`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Failed to scan DNS resolution');
+            }
+
+            const scanResults = await response.json();
+            this.showDnsScanResults(scanResults);
+        } catch (error) {
+            this.showToast('Failed to scan DNS resolution: ' + error.message, 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    showDnsScanResults(scanResults) {
+        const { results, total, unresolved } = scanResults;
+        
+        // Update stats
+        const statsDiv = document.getElementById('dnsScanStats');
+        statsDiv.innerHTML = `
+            <div class="scan-stat">
+                <span class="scan-stat-value">${total}</span>
+                <span class="scan-stat-label">Total Hosts</span>
+            </div>
+            <div class="scan-stat">
+                <span class="scan-stat-value">${total - unresolved}</span>
+                <span class="scan-stat-label">Resolved</span>
+            </div>
+            <div class="scan-stat">
+                <span class="scan-stat-value unresolved-count">${unresolved}</span>
+                <span class="scan-stat-label">Unresolved</span>
+            </div>
+        `;
+
+        // Show unresolved hosts
+        const unresolvedHosts = results.filter(r => !r.resolved);
+        const unresolvedList = document.getElementById('unresolvedList');
+        
+        if (unresolvedHosts.length === 0) {
+            unresolvedList.innerHTML = '<div class="empty-state">🎉 All hosts resolved successfully!</div>';
+            document.getElementById('selectAllUnresolved').style.display = 'none';
+        } else {
+            document.getElementById('selectAllUnresolved').style.display = 'inline-flex';
+            unresolvedList.innerHTML = unresolvedHosts.map(host => `
+                <div class="host-item">
+                    <label>
+                        <input type="checkbox" value="${this.escapeHtml(host.server)}" class="unresolved-checkbox">
+                        <span class="host-name">${this.escapeHtml(host.server)}</span>
+                    </label>
+                    ${host.error ? `<span class="host-error">${this.escapeHtml(host.error)}</span>` : ''}
+                </div>
+            `).join('');
+
+            // Add event listeners to checkboxes
+            unresolvedList.querySelectorAll('.unresolved-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', () => {
+                    this.updateDeprecateUnresolvedButton();
+                });
+            });
+        }
+
+        this.updateDeprecateUnresolvedButton();
+        this.showModal('dnsScanModal');
+    }
+
+    toggleSelectAllUnresolved() {
+        const checkboxes = document.querySelectorAll('.unresolved-checkbox');
+        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+        
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = !allChecked;
+        });
+        
+        this.updateDeprecateUnresolvedButton();
+    }
+
+    updateDeprecateUnresolvedButton() {
+        const selectedCount = document.querySelectorAll('.unresolved-checkbox:checked').length;
+        const deprecateBtn = document.getElementById('deprecateUnresolved');
+        
+        if (selectedCount > 0) {
+            deprecateBtn.disabled = false;
+            deprecateBtn.textContent = `Deprecate Selected (${selectedCount})`;
+        } else {
+            deprecateBtn.disabled = true;
+            deprecateBtn.textContent = 'Deprecate Selected';
+        }
+    }
+
+    async deprecateSelectedUnresolved() {
+        const selectedHosts = Array.from(document.querySelectorAll('.unresolved-checkbox:checked'))
+            .map(cb => cb.value);
+
+        if (selectedHosts.length === 0) {
+            this.showToast('No hosts selected', 'warning');
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to deprecate SSH keys for ${selectedHosts.length} unresolved hosts?`)) {
+            return;
+        }
+
+        try {
+            this.showLoading();
+            const response = await fetch(`/${this.currentFlow}/bulk-deprecate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ servers: selectedHosts })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Failed to deprecate hosts');
+            }
+
+            const result = await response.json();
+            this.showToast(result.message, 'success');
+            this.hideModal('dnsScanModal');
+            await this.loadKeys();
+        } catch (error) {
+            this.showToast('Failed to deprecate hosts: ' + error.message, 'error');
+        } finally {
+            this.hideLoading();
+        }
     }
 }
 

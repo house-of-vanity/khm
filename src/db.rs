@@ -467,6 +467,71 @@ impl DbClient {
         Ok(affected)
     }
 
+    pub async fn bulk_deprecate_keys_by_servers(
+        &self,
+        server_names: &[String],
+        flow_name: &str,
+    ) -> Result<u64, tokio_postgres::Error> {
+        if server_names.is_empty() {
+            return Ok(0);
+        }
+
+        // Update keys to deprecated status for multiple servers in one query
+        let result = self
+            .client
+            .execute(
+                "UPDATE public.keys 
+                 SET deprecated = TRUE, updated = NOW() 
+                 WHERE host = ANY($1) 
+                 AND key_id IN (
+                     SELECT key_id FROM public.flows WHERE name = $2
+                 )",
+                &[&server_names, &flow_name],
+            )
+            .await;
+        let affected = Self::handle_db_error(result, "bulk deprecating keys")?;
+
+        info!(
+            "Bulk deprecated {} key(s) for {} servers in flow '{}'",
+            affected, server_names.len(), flow_name
+        );
+
+        Ok(affected)
+    }
+
+    pub async fn bulk_restore_keys_by_servers(
+        &self,
+        server_names: &[String],
+        flow_name: &str,
+    ) -> Result<u64, tokio_postgres::Error> {
+        if server_names.is_empty() {
+            return Ok(0);
+        }
+
+        // Update keys to active status for multiple servers in one query
+        let result = self
+            .client
+            .execute(
+                "UPDATE public.keys 
+                 SET deprecated = FALSE, updated = NOW() 
+                 WHERE host = ANY($1) 
+                 AND deprecated = TRUE
+                 AND key_id IN (
+                     SELECT key_id FROM public.flows WHERE name = $2
+                 )",
+                &[&server_names, &flow_name],
+            )
+            .await;
+        let affected = Self::handle_db_error(result, "bulk restoring keys")?;
+
+        info!(
+            "Bulk restored {} key(s) for {} servers in flow '{}'",
+            affected, server_names.len(), flow_name
+        );
+
+        Ok(affected)
+    }
+
     pub async fn restore_key_by_server(
         &self,
         server_name: &str,
@@ -642,6 +707,36 @@ impl ReconnectingDbClient {
             Some(client) => {
                 client
                     .deprecate_key_by_server(&server_name, &flow_name)
+                    .await
+            }
+            None => panic!("Database client not initialized"),
+        }
+    }
+
+    pub async fn bulk_deprecate_keys_by_servers_reconnecting(
+        &self,
+        server_names: Vec<String>,
+        flow_name: String,
+    ) -> Result<u64, tokio_postgres::Error> {
+        match &self.inner {
+            Some(client) => {
+                client
+                    .bulk_deprecate_keys_by_servers(&server_names, &flow_name)
+                    .await
+            }
+            None => panic!("Database client not initialized"),
+        }
+    }
+
+    pub async fn bulk_restore_keys_by_servers_reconnecting(
+        &self,
+        server_names: Vec<String>,
+        flow_name: String,
+    ) -> Result<u64, tokio_postgres::Error> {
+        match &self.inner {
+            Some(client) => {
+                client
+                    .bulk_restore_keys_by_servers(&server_names, &flow_name)
                     .await
             }
             None => panic!("Database client not initialized"),

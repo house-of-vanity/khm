@@ -307,6 +307,18 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
             // API routes
             .route("/api/flows", web::get().to(crate::web::get_flows_api))
             .route(
+                "/{flow_id}/scan-dns",
+                web::post().to(crate::web::scan_dns_resolution),
+            )
+            .route(
+                "/{flow_id}/bulk-deprecate",
+                web::post().to(crate::web::bulk_deprecate_servers),
+            )
+            .route(
+                "/{flow_id}/bulk-restore",
+                web::post().to(crate::web::bulk_restore_servers),
+            )
+            .route(
                 "/{flow_id}/keys/{server}",
                 web::delete().to(crate::web::delete_key_by_server),
             )
