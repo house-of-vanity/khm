@@ -305,6 +305,7 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
             .app_data(web::Data::new(db_client.clone()))
             .app_data(allowed_flows.clone())
             // API routes
+            .route("/api/version", web::get().to(crate::web::get_version_api))
             .route("/api/flows", web::get().to(crate::web::get_flows_api))
             .route(
                 "/{flow_id}/scan-dns",

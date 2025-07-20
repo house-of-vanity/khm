@@ -12,6 +12,7 @@ class SSHKeyManager {
         this.showDeprecatedOnly = false;
         
         this.initializeEventListeners();
+        this.loadVersion();
         this.loadFlows();
     }
 
@@ -147,6 +148,20 @@ class SSHKeyManager {
                 }
             });
         });
+    }
+
+    async loadVersion() {
+        try {
+            const response = await fetch('/api/version');
+            if (response.ok) {
+                const data = await response.json();
+                document.getElementById('appVersion').textContent = `v${data.version}`;
+            } else {
+                document.getElementById('appVersion').textContent = 'Unknown';
+            }
+        } catch (error) {
+            document.getElementById('appVersion').textContent = 'Error';
+        }
     }
 
     async loadFlows() {

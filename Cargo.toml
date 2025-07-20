@@ -12,11 +12,13 @@ env_logger = "0.11.3"
 log = "0.4"
 regex = "1.10.5"
 base64 = "0.21"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full", "sync"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 clap = { version = "4", features = ["derive"] }
 chrono = "0.4.38"
 reqwest = { version = "0.12", features = ["json"] }
+trust-dns-resolver = "0.23"
+futures = "0.3"
 hostname = "0.3"
 rust-embed = "8.0"

@@ -67,6 +67,13 @@ async fn check_dns_resolution(hostname: String, semaphore: Arc<Semaphore>) -> Dn
     }
 }
 
+// API endpoint to get application version
+pub async fn get_version_api() -> Result<HttpResponse> {
+    Ok(HttpResponse::Ok().json(json!({
+        "version": env!("CARGO_PKG_VERSION")
+    })))
+}
+
 // API endpoint to get list of available flows
 pub async fn get_flows_api(allowed_flows: web::Data<Vec<String>>) -> Result<HttpResponse> {
     info!("API request for available flows");
