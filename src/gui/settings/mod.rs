@@ -402,7 +402,7 @@ impl eframe::App for KhmSettingsWindow {
 impl KhmSettingsWindow {
     fn render_connection_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let available_height = ui.available_height();
-        let button_area_height = 80.0; // Reserve space for buttons and status
+        let button_area_height = 40.0; // Reserve space for buttons and status
         let content_height = available_height - button_area_height;
         
         // Main content area (scrollable)
@@ -550,7 +550,7 @@ impl KhmSettingsWindow {
                         ui.add_space(10.0);
                         
                         // Advanced settings (collapsible)
-                        ui.collapsing("🔧 Advanced Settings", |ui| {
+                        ui.collapsing("🔧 Settings Info", |ui| {
                             ui.indent("advanced", |ui| {
                                 ui.label("Configuration details:");
                                 ui.add_space(5.0);
