@@ -2,6 +2,7 @@ mod client;
 mod db;
 mod server;
 mod web;
+mod gui;
 
 use clap::Parser;
 use env_logger;
@@ -30,6 +31,14 @@ struct Args {
     /// Run in server mode (default: false)
     #[arg(long, help = "Run in server mode")]
     server: bool,
+
+    /// Run with GUI tray interface (default: false)
+    #[arg(long, help = "Run with GUI tray interface")]
+    gui: bool,
+
+    /// Run settings UI window (used with --gui)
+    #[arg(long, help = "Run settings UI window (used with --gui)")]
+    settings_ui: bool,
 
     /// Update the known_hosts file with keys from the server after sending keys (default: false)
     #[arg(
@@ -128,10 +137,26 @@ async fn main() -> std::io::Result<()> {
 
     let args = Args::parse();
 
-    // Check if we have the minimum required arguments
-    if !args.server && (args.host.is_none() || args.flow.is_none()) {
-        // Neither server mode nor client mode properly configured
-        eprintln!("Error: You must specify either server mode (--server) or client mode (--host and --flow)");
+    // Settings UI mode - just show settings window and exit
+    if args.settings_ui {
+        info!("Running settings UI window");
+        gui::run_settings_window();
+        return Ok(());
+    }
+
+    // GUI mode has priority
+    if args.gui {
+        info!("Running in GUI mode");
+        if let Err(e) = gui::run_gui().await {
+            error!("Failed to run GUI: {}", e);
+        }
+        return Ok(());
+    }
+
+    // Check if we have the minimum required arguments for server/client mode
+    if !args.server && !args.gui && (args.host.is_none() || args.flow.is_none()) {
+        // Neither server mode nor client mode nor GUI mode properly configured
+        eprintln!("Error: You must specify either server mode (--server), client mode (--host and --flow), or GUI mode (--gui)");
         eprintln!();
         eprintln!("Examples:");
         eprintln!(
@@ -140,6 +165,14 @@ async fn main() -> std::io::Result<()> {
         );
         eprintln!(
             "  Client mode: {} --host https://khm.example.com --flow work",
+            env!("CARGO_PKG_NAME")
+        );
+        eprintln!(
+            "  GUI mode: {} --gui",
+            env!("CARGO_PKG_NAME")
+        );
+        eprintln!(
+            "  Settings window: {} --gui --settings-ui",
             env!("CARGO_PKG_NAME")
         );
         eprintln!();

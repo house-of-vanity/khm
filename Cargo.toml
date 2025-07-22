@@ -8,7 +8,6 @@ authors = ["AB <ab@hexor.cy>"]
 actix-web = "4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-env_logger = "0.11.3"
 log = "0.4"
 regex = "1.10.5"
 base64 = "0.21"
@@ -22,3 +21,15 @@ trust-dns-resolver = "0.23"
 futures = "0.3"
 hostname = "0.3"
 rust-embed = "8.0"
+tray-icon = "0.19"
+notify = "6.1"
+notify-debouncer-mini = "0.4"
+dirs = "5.0"
+eframe = "0.29"
+egui = "0.29"
+winit = "0.30"
+env_logger = "0.11"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.25"
+objc = "0.2.7"
