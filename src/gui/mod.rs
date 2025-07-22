@@ -177,7 +177,7 @@ struct Application {
     sync_id: Option<MenuId>,
     settings: Arc<Mutex<KhmSettings>>,
     sync_status: Arc<Mutex<SyncStatus>>,
-    _debouncer: Option<notify_debouncer_mini::Debouncer<notify::FsEventWatcher>>,
+    _debouncer: Option<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>>,
     proxy: EventLoopProxy<UserEvent>,
     auto_sync_handle: Option<std::thread::JoinHandle<()>>,
 }
