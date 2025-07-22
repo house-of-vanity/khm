@@ -402,7 +402,7 @@ impl eframe::App for KhmSettingsWindow {
 impl KhmSettingsWindow {
     fn render_connection_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let available_height = ui.available_height();
-        let button_area_height = 40.0; // Reserve space for buttons and status
+        let button_area_height = 120.0; // Reserve space for buttons and status
         let content_height = available_height - button_area_height;
         
         // Main content area (scrollable)
@@ -426,22 +426,6 @@ impl KhmSettingsWindow {
                                         if self.is_testing_connection {
                                             ui.spinner();
                                             ui.label(egui::RichText::new("Testing...").italics());
-                                        } else {
-                                            match &self.connection_status {
-                                                ConnectionStatus::Unknown => {
-                                                    ui.label(egui::RichText::new("Not tested").color(egui::Color32::GRAY));
-                                                }
-                                                ConnectionStatus::Connected { keys_count, flow } => {
-                                                    ui.label(egui::RichText::new("✅").color(egui::Color32::GREEN));
-                                                    ui.label(egui::RichText::new(format!("{} keys in '{}'", keys_count, flow))
-                                                        .color(egui::Color32::LIGHT_GREEN));
-                                                }
-                                                ConnectionStatus::Error(err) => {
-                                                    ui.label(egui::RichText::new("❌").color(egui::Color32::RED))
-                                                        .on_hover_text(format!("Error: {}", err));
-                                                    ui.label(egui::RichText::new("Failed").color(egui::Color32::RED));
-                                                }
-                                            }
                                         }
                                     });
                                 });
@@ -583,18 +567,41 @@ impl KhmSettingsWindow {
             [ui.available_width(), button_area_height].into(),
             egui::Layout::bottom_up(egui::Align::Min),
             |ui| {
-                // Show sync status
-                match &self.sync_status {
-                    SyncStatus::Success { keys_count } => {
-                        ui.label(egui::RichText::new(format!("✅ Last sync successful: {} keys", keys_count))
-                            .color(egui::Color32::GREEN));
-                    }
-                    SyncStatus::Error(err) => {
-                        ui.label(egui::RichText::new(format!("❌ Sync failed: {}", err))
-                            .color(egui::Color32::RED));
-                    }
-                    SyncStatus::Unknown => {}
-                }
+                // Status information block
+                ui.group(|ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.vertical(|ui| {
+                        // Show sync status
+                        match &self.sync_status {
+                            SyncStatus::Success { keys_count } => {
+                                ui.label(egui::RichText::new(format!("✅ Last sync successful: {} keys", keys_count))
+                                    .color(egui::Color32::GREEN));
+                            }
+                            SyncStatus::Error(err) => {
+                                ui.label(egui::RichText::new(format!("❌ Sync failed: {}", err))
+                                    .color(egui::Color32::RED));
+                            }
+                            SyncStatus::Unknown => {}
+                        }
+                        
+                        // Show connection status
+                        if !self.is_testing_connection {
+                            match &self.connection_status {
+                                ConnectionStatus::Connected { keys_count, flow } => {
+                                    ui.label(egui::RichText::new(format!("✅ Connected to '{}': {} keys available", flow, keys_count))
+                                        .color(egui::Color32::LIGHT_GREEN));
+                                }
+                                ConnectionStatus::Error(err) => {
+                                    ui.label(egui::RichText::new(format!("❌ Connection failed: {}", err))
+                                        .color(egui::Color32::RED));
+                                }
+                                ConnectionStatus::Unknown => {}
+                            }
+                        }
+                    });
+                });
+                
+                ui.add_space(8.0);
                 
                 // Show validation hints
                 let save_enabled = !self.settings.host.is_empty() && !self.settings.flow.is_empty();
