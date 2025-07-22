@@ -29,11 +29,11 @@ pub struct SshKey {
 #[derive(Debug, Clone)]
 enum AdminOperation {
     LoadingKeys,
-    DeprecatingKey(String),
-    RestoringKey(String), 
-    DeletingKey(String),
-    BulkDeprecating(Vec<String>),
-    BulkRestoring(Vec<String>),
+    DeprecatingKey,
+    RestoringKey, 
+    DeletingKey,
+    BulkDeprecating,
+    BulkRestoring,
     None,
 }
 
@@ -275,14 +275,14 @@ impl eframe::App for KhmSettingsWindow {
             .show(ctx, |ui| {
                 // Header with title
                 ui.horizontal(|ui| {
-                    ui.heading(egui::RichText::new("🔐 KHM Settings").size(24.0));
+                    ui.heading(egui::RichText::new("🔑 KHM Settings").size(24.0));
                 });
                 
                 ui.add_space(10.0);
                 
                 // Tab selector
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.current_tab, SettingsTab::Connection, "⚙ Connection");
+                    ui.selectable_value(&mut self.current_tab, SettingsTab::Connection, "📃 Settings");
                     ui.selectable_value(&mut self.current_tab, SettingsTab::Admin, "🔧 Admin");
                 });
                 
@@ -318,7 +318,7 @@ impl KhmSettingsWindow {
                                     ui.label(egui::RichText::new("Not tested").color(egui::Color32::GRAY));
                                 }
                                 ConnectionStatus::Connected { keys_count, flow } => {
-                                    ui.label(egui::RichText::new("✓").color(egui::Color32::GREEN));
+                                    ui.label(egui::RichText::new("✅").color(egui::Color32::GREEN));
                                     ui.label(egui::RichText::new(format!("{} keys in '{}'", keys_count, flow))
                                         .color(egui::Color32::LIGHT_GREEN));
                                 }
@@ -391,7 +391,7 @@ impl KhmSettingsWindow {
                     });
                 
                 ui.add_space(8.0);
-                ui.checkbox(&mut self.settings.in_place, "✏️ Update known_hosts file in-place after sync");
+                ui.checkbox(&mut self.settings.in_place, "✏ Update known_hosts file in-place after sync");
             });
         });
         
@@ -423,9 +423,9 @@ impl KhmSettingsWindow {
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if is_auto_sync_enabled {
-                            ui.label(egui::RichText::new("✅ Enabled").color(egui::Color32::GREEN));
+                            ui.label(egui::RichText::new("🔄 Enabled").color(egui::Color32::GREEN));
                         } else {
-                            ui.label(egui::RichText::new("⏸️ Disabled").color(egui::Color32::YELLOW));
+                            ui.label(egui::RichText::new("❌ Disabled").color(egui::Color32::YELLOW));
                             ui.label("(Configure host, flow & enable in-place sync)");
                         }
                     });
@@ -483,7 +483,7 @@ impl KhmSettingsWindow {
             }
             
             if ui.add(
-                egui::Button::new("❌ Cancel")
+                egui::Button::new("✖ Cancel")
                     .min_size(egui::vec2(80.0, 32.0))
             ).clicked() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -496,9 +496,9 @@ impl KhmSettingsWindow {
                     can_test,
                     egui::Button::new(
                         if self.is_testing_connection {
-                            "🔄 Testing..."
+                            "▶ Testing..."
                         } else {
-                            "🧪 Test Connection"
+                            "🔍 Test Connection"
                         }
                     ).min_size(egui::vec2(120.0, 32.0))
                 ).clicked() {
@@ -510,7 +510,7 @@ impl KhmSettingsWindow {
         // Show validation hints
         if !save_enabled {
             ui.add_space(5.0);
-            ui.label(egui::RichText::new("⚠️ Please fill in Host URL and Flow Name to save settings")
+            ui.label(egui::RichText::new("❗ Please fill in Host URL and Flow Name to save settings")
                 .color(egui::Color32::YELLOW)
                 .italics());
         }
@@ -549,7 +549,7 @@ impl KhmSettingsWindow {
             ui.label(egui::RichText::new("🔧 Admin Panel").size(18.0).strong());
             
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("🔄 Refresh").clicked() {
+                if ui.button("🔁 Refresh").clicked() {
                     self.load_admin_keys(ctx);
                 }
                 
@@ -566,7 +566,7 @@ impl KhmSettingsWindow {
         // Check if connection is configured
         if self.settings.host.is_empty() || self.settings.flow.is_empty() {
             ui.vertical_centered(|ui| {
-                ui.label(egui::RichText::new("⚠ Please configure connection settings first")
+                ui.label(egui::RichText::new("❗ Please configure connection settings first")
                     .size(16.0)
                     .color(egui::Color32::YELLOW));
                 ui.add_space(10.0);
@@ -603,50 +603,50 @@ impl KhmSettingsWindow {
                 let deprecated_keys = total_keys - active_keys;
                 let unique_servers = self.admin_state.keys.iter().map(|k| &k.server).collect::<std::collections::HashSet<_>>().len();
                 
-                egui::Grid::new("stats_grid")
-                    .num_columns(4)
-                    .min_col_width(80.0)
-                    .spacing([15.0, 8.0])
-                    .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.columns(4, |cols| {
                         // Total keys
-                        ui.vertical_centered(|ui| {
+                        cols[0].vertical_centered_justified(|ui| {
                             ui.label(egui::RichText::new("📊").size(20.0));
                             ui.label(egui::RichText::new(total_keys.to_string()).size(24.0).strong());
                             ui.label(egui::RichText::new("Total Keys").size(11.0).color(egui::Color32::GRAY));
                         });
                         
                         // Active keys
-                        ui.vertical_centered(|ui| {
-                            ui.label(egui::RichText::new("✓").size(20.0));
+                        cols[1].vertical_centered_justified(|ui| {
+                            ui.label(egui::RichText::new("✅").size(20.0));
                             ui.label(egui::RichText::new(active_keys.to_string()).size(24.0).strong().color(egui::Color32::LIGHT_GREEN));
                             ui.label(egui::RichText::new("Active").size(11.0).color(egui::Color32::GRAY));
                         });
                         
                         // Deprecated keys
-                        ui.vertical_centered(|ui| {
-                            ui.label(egui::RichText::new("⚠").size(20.0));
+                        cols[2].vertical_centered_justified(|ui| {
+                            ui.label(egui::RichText::new("❌").size(20.0));
                             ui.label(egui::RichText::new(deprecated_keys.to_string()).size(24.0).strong().color(egui::Color32::LIGHT_RED));
                             ui.label(egui::RichText::new("Deprecated").size(11.0).color(egui::Color32::GRAY));
                         });
                         
                         // Servers
-                        ui.vertical_centered(|ui| {
-                            ui.label(egui::RichText::new("🖥").size(20.0));
+                        cols[3].vertical_centered_justified(|ui| {
+                            ui.label(egui::RichText::new("💻").size(20.0));
                             ui.label(egui::RichText::new(unique_servers.to_string()).size(24.0).strong().color(egui::Color32::LIGHT_BLUE));
                             ui.label(egui::RichText::new("Servers").size(11.0).color(egui::Color32::GRAY));
                         });
-                        
-                        ui.end_row();
                     });
+                });
             });
         });
         
         ui.add_space(10.0);
         
-        // Enhanced search and filters - более компактные
+        // Enhanced search and filters - адаптивный подход как в блоках статистики
         ui.group(|ui| {
+            ui.set_min_width(ui.available_width());
             ui.vertical(|ui| {
-                // Первая строка - поиск
+                ui.label(egui::RichText::new("🔍 Search").size(16.0).strong());
+                ui.add_space(8.0);
+                
+                // Search field with full width like statistics blocks
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("🔍").size(14.0));
                     let search_response = ui.add_sized(
@@ -659,7 +659,7 @@ impl KhmSettingsWindow {
                         ui.label(egui::RichText::new("Type to search").size(11.0).color(egui::Color32::GRAY));
                     } else {
                         ui.label(egui::RichText::new(format!("{} results", self.admin_state.filtered_keys.len())).size(11.0));
-                        if ui.add(egui::Button::new(egui::RichText::new("X").color(egui::Color32::WHITE))
+                        if ui.add(egui::Button::new(egui::RichText::new("❌").color(egui::Color32::WHITE))
                             .fill(egui::Color32::from_rgb(170, 170, 170))
                             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(89, 89, 89)))
                             .rounding(egui::Rounding::same(3.0))
@@ -682,11 +682,11 @@ impl KhmSettingsWindow {
                 ui.horizontal(|ui| {
                     ui.label("Filter:");
                     let show_deprecated = self.admin_state.show_deprecated_only;
-                    if ui.selectable_label(!show_deprecated, "✓ Active").clicked() {
+                    if ui.selectable_label(!show_deprecated, "✅ Active").clicked() {
                         self.admin_state.show_deprecated_only = false;
                         self.filter_admin_keys();
                     }
-                    if ui.selectable_label(show_deprecated, "⚠ Deprecated").clicked() {
+                    if ui.selectable_label(show_deprecated, "❗ Deprecated").clicked() {
                         self.admin_state.show_deprecated_only = true;
                         self.filter_admin_keys();
                     }
@@ -713,7 +713,7 @@ impl KhmSettingsWindow {
                     ui.add_space(5.0);
                     
                     ui.horizontal(|ui| {
-                        if ui.add(egui::Button::new(egui::RichText::new("⚠ Deprecate Selected").color(egui::Color32::BLACK))
+                        if ui.add(egui::Button::new(egui::RichText::new("❗ Deprecate Selected").color(egui::Color32::BLACK))
                             .fill(egui::Color32::from_rgb(255, 200, 0))
                             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(102, 94, 72)))
                             .rounding(egui::Rounding::same(6.0))
@@ -722,7 +722,7 @@ impl KhmSettingsWindow {
                             self.deprecate_selected_servers(ctx);
                         }
                         
-                        if ui.add(egui::Button::new(egui::RichText::new("✓ Restore Selected").color(egui::Color32::WHITE))
+                        if ui.add(egui::Button::new(egui::RichText::new("✅ Restore Selected").color(egui::Color32::WHITE))
                             .fill(egui::Color32::from_rgb(101, 199, 40))
                             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(94, 105, 25)))
                             .rounding(egui::Rounding::same(6.0))
@@ -826,7 +826,7 @@ impl KhmSettingsWindow {
                         .size(14.0)
                         .color(egui::Color32::DARK_GRAY));
                 } else {
-                    ui.label(egui::RichText::new("X").size(48.0).color(egui::Color32::GRAY));
+                    ui.label(egui::RichText::new("❌").size(48.0).color(egui::Color32::GRAY));
                     ui.label(egui::RichText::new("No keys match current filters")
                         .size(18.0)
                         .color(egui::Color32::GRAY));
@@ -866,7 +866,7 @@ impl KhmSettingsWindow {
                     }
                     
                     // Modern expand/collapse button
-                    let expand_icon = if is_expanded { "▼" } else { "▶" };
+                    let expand_icon = if is_expanded { "🔺" } else { "🔻" };
                     if ui.add(egui::Button::new(expand_icon)
                         .fill(egui::Color32::TRANSPARENT)
                         .stroke(egui::Stroke::NONE)
@@ -876,7 +876,7 @@ impl KhmSettingsWindow {
                     }
                     
                     // Server icon and name
-                    ui.label(egui::RichText::new("🖥").size(16.0));
+                    ui.label(egui::RichText::new("💻").size(16.0));
                     ui.label(egui::RichText::new(&server_name)
                         .size(15.0)
                         .strong()
@@ -925,7 +925,7 @@ impl KhmSettingsWindow {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Stylized action buttons - improved colors
                         if deprecated_count > 0 {
-                            if ui.add(egui::Button::new(egui::RichText::new("✓ Restore").color(egui::Color32::WHITE))
+                            if ui.add(egui::Button::new(egui::RichText::new("✅ Restore").color(egui::Color32::WHITE))
                                 .fill(egui::Color32::from_rgb(101, 199, 40))
                                 .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(94, 105, 25)))
                                 .rounding(egui::Rounding::same(4.0))
@@ -936,7 +936,7 @@ impl KhmSettingsWindow {
                         }
                         
                         if active_count > 0 {
-                            if ui.add(egui::Button::new(egui::RichText::new("⚠ Deprecate").color(egui::Color32::BLACK))
+                            if ui.add(egui::Button::new(egui::RichText::new("❗ Deprecate").color(egui::Color32::BLACK))
                                 .fill(egui::Color32::from_rgb(255, 200, 0))
                                 .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(102, 94, 72)))
                                 .rounding(egui::Rounding::same(4.0))
@@ -987,12 +987,12 @@ impl KhmSettingsWindow {
                                 
                                 // Status badge with icons - меньшие
                                 if key.deprecated {
-                                    ui.label(egui::RichText::new("⚠ DEPR")
+                                    ui.label(egui::RichText::new("❗ DEPR")
                                         .size(10.0)
                                         .color(egui::Color32::from_rgb(231, 76, 60))
                                         .strong());
                                 } else {
-                                    ui.label(egui::RichText::new("✓ ACTIVE")
+                                    ui.label(egui::RichText::new("[OK] ACTIVE")
                                         .size(10.0)
                                         .color(egui::Color32::from_rgb(46, 204, 113))
                                         .strong());
@@ -1009,7 +1009,7 @@ impl KhmSettingsWindow {
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     // Modern action buttons - improved colors
                                     if key.deprecated {
-                                        if ui.add(egui::Button::new(egui::RichText::new("✓").color(egui::Color32::WHITE))
+                                        if ui.add(egui::Button::new(egui::RichText::new("[R]").color(egui::Color32::WHITE))
                                             .fill(egui::Color32::from_rgb(101, 199, 40))
                                             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(94, 105, 25)))
                                             .rounding(egui::Rounding::same(3.0))
@@ -1026,7 +1026,7 @@ impl KhmSettingsWindow {
                                             self.delete_key(&server_name_for_action, ctx);
                                         }
                                     } else {
-                                        if ui.add(egui::Button::new(egui::RichText::new("⚠").color(egui::Color32::BLACK))
+                                        if ui.add(egui::Button::new(egui::RichText::new("❗").color(egui::Color32::BLACK))
                                             .fill(egui::Color32::from_rgb(255, 200, 0))
                                             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(102, 94, 72)))
                                             .rounding(egui::Rounding::same(3.0))
@@ -1055,12 +1055,66 @@ impl KhmSettingsWindow {
         }
     }
     
-    fn deprecate_selected_servers(&mut self, _ctx: &egui::Context) {
-        // Stub for now
+    fn deprecate_selected_servers(&mut self, ctx: &egui::Context) {
+        let selected: Vec<String> = self.admin_state.selected_servers
+            .iter()
+            .filter_map(|(server, &selected)| if selected { Some(server.clone()) } else { None })
+            .collect();
+        
+        if selected.is_empty() {
+            return;
+        }
+        
+        self.admin_state.current_operation = AdminOperation::BulkDeprecating;
+        
+        let (tx, rx) = mpsc::channel();
+        self.operation_receiver = Some(rx);
+        
+        let host = self.settings.host.clone();
+        let flow = self.settings.flow.clone();
+        let basic_auth = self.settings.basic_auth.clone();
+        let ctx_clone = ctx.clone();
+        
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let result = rt.block_on(async {
+                bulk_deprecate_servers(host, flow, basic_auth, selected).await
+            });
+            
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
     }
     
-    fn restore_selected_servers(&mut self, _ctx: &egui::Context) {
-        // Stub for now
+    fn restore_selected_servers(&mut self, ctx: &egui::Context) {
+        let selected: Vec<String> = self.admin_state.selected_servers
+            .iter()
+            .filter_map(|(server, &selected)| if selected { Some(server.clone()) } else { None })
+            .collect();
+        
+        if selected.is_empty() {
+            return;
+        }
+        
+        self.admin_state.current_operation = AdminOperation::BulkRestoring;
+        
+        let (tx, rx) = mpsc::channel();
+        self.operation_receiver = Some(rx);
+        
+        let host = self.settings.host.clone();
+        let flow = self.settings.flow.clone();
+        let basic_auth = self.settings.basic_auth.clone();
+        let ctx_clone = ctx.clone();
+        
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let result = rt.block_on(async {
+                bulk_restore_servers(host, flow, basic_auth, selected).await
+            });
+            
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
     }
     
     fn get_key_type(&self, public_key: &str) -> String {
@@ -1091,24 +1145,81 @@ impl KhmSettingsWindow {
         }
     }
     
-    fn deprecate_server_keys(&mut self, _server: &str, _ctx: &egui::Context) {
-        // Stub for now
+    fn deprecate_server_keys(&mut self, server: &str, ctx: &egui::Context) {
+        self.admin_state.current_operation = AdminOperation::DeprecatingKey;
+        
+        let (tx, rx) = mpsc::channel();
+        self.operation_receiver = Some(rx);
+        
+        let host = self.settings.host.clone();
+        let flow = self.settings.flow.clone();
+        let basic_auth = self.settings.basic_auth.clone();
+        let server_name = server.to_string();
+        let ctx_clone = ctx.clone();
+        
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let result = rt.block_on(async {
+                deprecate_key_by_server(host, flow, basic_auth, server_name).await
+            });
+            
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
     }
     
-    fn restore_server_keys(&mut self, _server: &str, _ctx: &egui::Context) {
-        // Stub for now
+    fn restore_server_keys(&mut self, server: &str, ctx: &egui::Context) {
+        self.admin_state.current_operation = AdminOperation::RestoringKey;
+        
+        let (tx, rx) = mpsc::channel();
+        self.operation_receiver = Some(rx);
+        
+        let host = self.settings.host.clone();
+        let flow = self.settings.flow.clone();
+        let basic_auth = self.settings.basic_auth.clone();
+        let server_name = server.to_string();
+        let ctx_clone = ctx.clone();
+        
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let result = rt.block_on(async {
+                restore_key_by_server(host, flow, basic_auth, server_name).await
+            });
+            
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
     }
     
-    fn deprecate_key(&mut self, _server: &str, _ctx: &egui::Context) {
-        // Stub for now
+    fn deprecate_key(&mut self, server: &str, ctx: &egui::Context) {
+        self.deprecate_server_keys(server, ctx);
     }
     
-    fn restore_key(&mut self, _server: &str, _ctx: &egui::Context) {
-        // Stub for now
+    fn restore_key(&mut self, server: &str, ctx: &egui::Context) {
+        self.restore_server_keys(server, ctx);
     }
     
-    fn delete_key(&mut self, _server: &str, _ctx: &egui::Context) {
-        // Stub for now
+    fn delete_key(&mut self, server: &str, ctx: &egui::Context) {
+        self.admin_state.current_operation = AdminOperation::DeletingKey;
+        
+        let (tx, rx) = mpsc::channel();
+        self.operation_receiver = Some(rx);
+        
+        let host = self.settings.host.clone();
+        let flow = self.settings.flow.clone();
+        let basic_auth = self.settings.basic_auth.clone();
+        let server_name = server.to_string();
+        let ctx_clone = ctx.clone();
+        
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let result = rt.block_on(async {
+                permanently_delete_key_by_server(host, flow, basic_auth, server_name).await
+            });
+            
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
     }
 }
 
@@ -1169,6 +1280,248 @@ fn create_window_icon() -> egui::IconData {
         rgba: icon_data,
         width: icon_size as u32,
         height: icon_size as u32,
+    }
+}
+
+// Admin API functions
+async fn bulk_deprecate_servers(host: String, flow: String, basic_auth: String, servers: Vec<String>) -> Result<String, String> {
+    if host.is_empty() || flow.is_empty() {
+        return Err("Host and flow must be specified".to_string());
+    }
+    
+    let url = format!("{}/{}/bulk-deprecate", host.trim_end_matches('/'), flow);
+    info!("Bulk deprecating {} servers at: {}", servers.len(), url);
+    
+    let client_builder = Client::builder()
+        .timeout(std::time::Duration::from_secs(30));
+    
+    let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    let mut request = client.post(&url)
+        .json(&serde_json::json!({
+            "servers": servers
+        }));
+    
+    // Add basic auth if provided
+    if !basic_auth.is_empty() {
+        let auth_parts: Vec<&str> = basic_auth.splitn(2, ':').collect();
+        if auth_parts.len() == 2 {
+            request = request.basic_auth(auth_parts[0], Some(auth_parts[1]));
+        } else {
+            return Err("Basic auth format should be 'username:password'".to_string());
+        }
+    }
+    
+    let response = request.send().await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
+    }
+    
+    let body = response.text().await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+    
+    // Parse JSON response to get message
+    if let Ok(json_response) = serde_json::from_str::<serde_json::Value>(&body) {
+        if let Some(message) = json_response.get("message").and_then(|v| v.as_str()) {
+            Ok(message.to_string())
+        } else {
+            Ok("Successfully deprecated servers".to_string())
+        }
+    } else {
+        Ok("Successfully deprecated servers".to_string())
+    }
+}
+
+async fn bulk_restore_servers(host: String, flow: String, basic_auth: String, servers: Vec<String>) -> Result<String, String> {
+    if host.is_empty() || flow.is_empty() {
+        return Err("Host and flow must be specified".to_string());
+    }
+    
+    let url = format!("{}/{}/bulk-restore", host.trim_end_matches('/'), flow);
+    info!("Bulk restoring {} servers at: {}", servers.len(), url);
+    
+    let client_builder = Client::builder()
+        .timeout(std::time::Duration::from_secs(30));
+    
+    let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    let mut request = client.post(&url)
+        .json(&serde_json::json!({
+            "servers": servers
+        }));
+    
+    // Add basic auth if provided
+    if !basic_auth.is_empty() {
+        let auth_parts: Vec<&str> = basic_auth.splitn(2, ':').collect();
+        if auth_parts.len() == 2 {
+            request = request.basic_auth(auth_parts[0], Some(auth_parts[1]));
+        } else {
+            return Err("Basic auth format should be 'username:password'".to_string());
+        }
+    }
+    
+    let response = request.send().await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
+    }
+    
+    let body = response.text().await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+    
+    // Parse JSON response to get message
+    if let Ok(json_response) = serde_json::from_str::<serde_json::Value>(&body) {
+        if let Some(message) = json_response.get("message").and_then(|v| v.as_str()) {
+            Ok(message.to_string())
+        } else {
+            Ok("Successfully restored servers".to_string())
+        }
+    } else {
+        Ok("Successfully restored servers".to_string())
+    }
+}
+
+async fn deprecate_key_by_server(host: String, flow: String, basic_auth: String, server: String) -> Result<String, String> {
+    if host.is_empty() || flow.is_empty() {
+        return Err("Host and flow must be specified".to_string());
+    }
+    
+    let url = format!("{}/{}/keys/{}", host.trim_end_matches('/'), flow, urlencoding::encode(&server));
+    info!("Deprecating key for server '{}' at: {}", server, url);
+    
+    let client_builder = Client::builder()
+        .timeout(std::time::Duration::from_secs(30));
+    
+    let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    let mut request = client.delete(&url);
+    
+    // Add basic auth if provided
+    if !basic_auth.is_empty() {
+        let auth_parts: Vec<&str> = basic_auth.splitn(2, ':').collect();
+        if auth_parts.len() == 2 {
+            request = request.basic_auth(auth_parts[0], Some(auth_parts[1]));
+        } else {
+            return Err("Basic auth format should be 'username:password'".to_string());
+        }
+    }
+    
+    let response = request.send().await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
+    }
+    
+    let body = response.text().await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+    
+    // Parse JSON response to get message
+    if let Ok(json_response) = serde_json::from_str::<serde_json::Value>(&body) {
+        if let Some(message) = json_response.get("message").and_then(|v| v.as_str()) {
+            Ok(message.to_string())
+        } else {
+            Ok(format!("Successfully deprecated key for server '{}'", server))
+        }
+    } else {
+        Ok(format!("Successfully deprecated key for server '{}'", server))
+    }
+}
+
+async fn restore_key_by_server(host: String, flow: String, basic_auth: String, server: String) -> Result<String, String> {
+    if host.is_empty() || flow.is_empty() {
+        return Err("Host and flow must be specified".to_string());
+    }
+    
+    let url = format!("{}/{}/keys/{}/restore", host.trim_end_matches('/'), flow, urlencoding::encode(&server));
+    info!("Restoring key for server '{}' at: {}", server, url);
+    
+    let client_builder = Client::builder()
+        .timeout(std::time::Duration::from_secs(30));
+    
+    let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    let mut request = client.post(&url);
+    
+    // Add basic auth if provided
+    if !basic_auth.is_empty() {
+        let auth_parts: Vec<&str> = basic_auth.splitn(2, ':').collect();
+        if auth_parts.len() == 2 {
+            request = request.basic_auth(auth_parts[0], Some(auth_parts[1]));
+        } else {
+            return Err("Basic auth format should be 'username:password'".to_string());
+        }
+    }
+    
+    let response = request.send().await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
+    }
+    
+    let body = response.text().await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+    
+    // Parse JSON response to get message
+    if let Ok(json_response) = serde_json::from_str::<serde_json::Value>(&body) {
+        if let Some(message) = json_response.get("message").and_then(|v| v.as_str()) {
+            Ok(message.to_string())
+        } else {
+            Ok(format!("Successfully restored key for server '{}'", server))
+        }
+    } else {
+        Ok(format!("Successfully restored key for server '{}'", server))
+    }
+}
+
+async fn permanently_delete_key_by_server(host: String, flow: String, basic_auth: String, server: String) -> Result<String, String> {
+    if host.is_empty() || flow.is_empty() {
+        return Err("Host and flow must be specified".to_string());
+    }
+    
+    let url = format!("{}/{}/keys/{}/delete", host.trim_end_matches('/'), flow, urlencoding::encode(&server));
+    info!("Permanently deleting key for server '{}' at: {}", server, url);
+    
+    let client_builder = Client::builder()
+        .timeout(std::time::Duration::from_secs(30));
+    
+    let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    let mut request = client.delete(&url);
+    
+    // Add basic auth if provided
+    if !basic_auth.is_empty() {
+        let auth_parts: Vec<&str> = basic_auth.splitn(2, ':').collect();
+        if auth_parts.len() == 2 {
+            request = request.basic_auth(auth_parts[0], Some(auth_parts[1]));
+        } else {
+            return Err("Basic auth format should be 'username:password'".to_string());
+        }
+    }
+    
+    let response = request.send().await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
+    }
+    
+    let body = response.text().await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+    
+    // Parse JSON response to get message
+    if let Ok(json_response) = serde_json::from_str::<serde_json::Value>(&body) {
+        if let Some(message) = json_response.get("message").and_then(|v| v.as_str()) {
+            Ok(message.to_string())
+        } else {
+            Ok(format!("Successfully deleted key for server '{}'", server))
+        }
+    } else {
+        Ok(format!("Successfully deleted key for server '{}'", server))
     }
 }
 

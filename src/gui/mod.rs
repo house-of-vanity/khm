@@ -425,7 +425,7 @@ impl ApplicationHandler<UserEvent> for Application {
                             }
                         }
                         
-                        tray_icon.set_tooltip(Some(&tooltip));
+                        let _ = tray_icon.set_tooltip(Some(&tooltip));
                     }
                 }
                 drop(settings);
@@ -511,7 +511,7 @@ impl ApplicationHandler<UserEvent> for Application {
                         }
                     }
                     
-                    tray_icon.set_tooltip(Some(&tooltip));
+                    let _ = tray_icon.set_tooltip(Some(&tooltip));
                 }
                 
                 // Restart auto sync if interval changed or settings changed
