@@ -7,8 +7,12 @@ use log::{debug, error, info};
 use objc::{msg_send, sel, sel_impl};
 use std::ffi::CStr;
 
+// NSTextFieldBezelStyle constants
+#[allow(non_upper_case_globals)]
+const NSTextFieldSquareBezel: u32 = 0;
+
 const WINDOW_WIDTH: f64 = 450.0;
-const WINDOW_HEIGHT: f64 = 350.0;
+const WINDOW_HEIGHT: f64 = 385.0;
 const MARGIN: f64 = 20.0;
 const FIELD_HEIGHT: f64 = 24.0;
 const BUTTON_HEIGHT: f64 = 32.0;
@@ -26,6 +30,7 @@ struct MacOSKhmSettingsWindow {
     flow_field: id,
     known_hosts_field: id,
     basic_auth_field: id,
+    auto_sync_field: id,
     in_place_checkbox: id,
 }
 
@@ -77,6 +82,10 @@ impl MacOSKhmSettingsWindow {
                 )
             ];
             let _: () = msg_send![host_field, setStringValue: NSString::alloc(nil).init_str(&settings.host)];
+            let _: () = msg_send![host_field, setEditable: YES];
+            let _: () = msg_send![host_field, setSelectable: YES];
+            let _: () = msg_send![host_field, setBezeled: YES];
+            let _: () = msg_send![host_field, setBezelStyle: NSTextFieldSquareBezel];
             let _: () = msg_send![content_view, addSubview: host_field];
             
             current_y -= 35.0;
@@ -102,6 +111,10 @@ impl MacOSKhmSettingsWindow {
                 )
             ];
             let _: () = msg_send![flow_field, setStringValue: NSString::alloc(nil).init_str(&settings.flow)];
+            let _: () = msg_send![flow_field, setEditable: YES];
+            let _: () = msg_send![flow_field, setSelectable: YES];
+            let _: () = msg_send![flow_field, setBezeled: YES];
+            let _: () = msg_send![flow_field, setBezelStyle: NSTextFieldSquareBezel];
             let _: () = msg_send![content_view, addSubview: flow_field];
             
             current_y -= 35.0;
@@ -127,6 +140,10 @@ impl MacOSKhmSettingsWindow {
                 )
             ];
             let _: () = msg_send![known_hosts_field, setStringValue: NSString::alloc(nil).init_str(&settings.known_hosts)];
+            let _: () = msg_send![known_hosts_field, setEditable: YES];
+            let _: () = msg_send![known_hosts_field, setSelectable: YES];
+            let _: () = msg_send![known_hosts_field, setBezeled: YES];
+            let _: () = msg_send![known_hosts_field, setBezelStyle: NSTextFieldSquareBezel];
             let _: () = msg_send![content_view, addSubview: known_hosts_field];
             
             current_y -= 35.0;
@@ -152,7 +169,40 @@ impl MacOSKhmSettingsWindow {
                 )
             ];
             let _: () = msg_send![basic_auth_field, setStringValue: NSString::alloc(nil).init_str(&settings.basic_auth)];
+            let _: () = msg_send![basic_auth_field, setEditable: YES];
+            let _: () = msg_send![basic_auth_field, setSelectable: YES];
+            let _: () = msg_send![basic_auth_field, setBezeled: YES];
+            let _: () = msg_send![basic_auth_field, setBezelStyle: NSTextFieldSquareBezel];
             let _: () = msg_send![content_view, addSubview: basic_auth_field];
+            
+            current_y -= 35.0;
+            
+            // Auto sync interval label and field
+            let auto_sync_label: id = msg_send![NSTextField::alloc(nil),
+                initWithFrame: NSRect::new(
+                    NSPoint::new(MARGIN, current_y),
+                    NSSize::new(100.0, 20.0),
+                )
+            ];
+            let _: () = msg_send![auto_sync_label, setStringValue: NSString::alloc(nil).init_str("Auto sync (min):")];
+            let _: () = msg_send![auto_sync_label, setBezeled: NO];
+            let _: () = msg_send![auto_sync_label, setDrawsBackground: NO];
+            let _: () = msg_send![auto_sync_label, setEditable: NO];
+            let _: () = msg_send![auto_sync_label, setSelectable: NO];
+            let _: () = msg_send![content_view, addSubview: auto_sync_label];
+            
+            let auto_sync_field: id = msg_send![NSTextField::alloc(nil),
+                initWithFrame: NSRect::new(
+                    NSPoint::new(MARGIN + 110.0, current_y),
+                    NSSize::new(310.0, FIELD_HEIGHT),
+                )
+            ];
+            let _: () = msg_send![auto_sync_field, setStringValue: NSString::alloc(nil).init_str(&settings.auto_sync_interval_minutes.to_string())];
+            let _: () = msg_send![auto_sync_field, setEditable: YES];
+            let _: () = msg_send![auto_sync_field, setSelectable: YES];
+            let _: () = msg_send![auto_sync_field, setBezeled: YES];
+            let _: () = msg_send![auto_sync_field, setBezelStyle: NSTextFieldSquareBezel];
+            let _: () = msg_send![content_view, addSubview: auto_sync_field];
             
             current_y -= 40.0;
             
@@ -196,6 +246,7 @@ impl MacOSKhmSettingsWindow {
                 flow_field,
                 known_hosts_field,
                 basic_auth_field,
+                auto_sync_field,
                 in_place_checkbox,
             }
         }
@@ -223,6 +274,12 @@ impl MacOSKhmSettingsWindow {
             let basic_auth_ptr: *const i8 = msg_send![basic_auth_ns_string, UTF8String];
             let basic_auth = CStr::from_ptr(basic_auth_ptr).to_string_lossy().to_string();
             
+            // Get auto sync interval
+            let auto_sync_ns_string: id = msg_send![self.auto_sync_field, stringValue];
+            let auto_sync_ptr: *const i8 = msg_send![auto_sync_ns_string, UTF8String];
+            let auto_sync_str = CStr::from_ptr(auto_sync_ptr).to_string_lossy().to_string();
+            let auto_sync_interval_minutes = auto_sync_str.parse::<u32>().unwrap_or(60); // Default to 60 if parse fails
+            
             // Get checkbox state
             let in_place_state: i32 = msg_send![self.in_place_checkbox, state];
             let in_place = in_place_state == NS_CONTROL_STATE_VALUE_ON;
@@ -233,6 +290,7 @@ impl MacOSKhmSettingsWindow {
                 known_hosts,
                 basic_auth,
                 in_place,
+                auto_sync_interval_minutes,
             }
         }
     }
@@ -308,6 +366,35 @@ pub fn run_settings_window() {
             // Check if window is closed via close button or ESC
             if event_type == NSEventType::NSKeyDown {
                 let key_code: u16 = msg_send![event, keyCode];
+                let flags: NSEventModifierFlags = msg_send![event, modifierFlags];
+                
+                // Handle Cmd+V (paste), Cmd+C (copy), Cmd+X (cut), Cmd+A (select all)
+                if flags.contains(NSEventModifierFlags::NSCommandKeyMask) {
+                    match key_code {
+                        9 => { // V key - paste
+                            let responder: id = msg_send![window, firstResponder];
+                            let _: () = msg_send![responder, paste: nil];
+                            continue;
+                        }
+                        8 => { // C key - copy
+                            let responder: id = msg_send![window, firstResponder];
+                            let _: () = msg_send![responder, copy: nil];
+                            continue;
+                        }
+                        7 => { // X key - cut
+                            let responder: id = msg_send![window, firstResponder];
+                            let _: () = msg_send![responder, cut: nil];
+                            continue;
+                        }
+                        0 => { // A key - select all
+                            let responder: id = msg_send![window, firstResponder];
+                            let _: () = msg_send![responder, selectAll: nil];
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+                
                 if key_code == 53 { // ESC key
                     info!("ESC pressed, closing settings window");
                     should_close = true;

@@ -11,6 +11,7 @@ pub struct KhmSettings {
     pub known_hosts: String,
     pub basic_auth: String,
     pub in_place: bool,
+    pub auto_sync_interval_minutes: u32,
 }
 
 impl Default for KhmSettings {
@@ -21,6 +22,7 @@ impl Default for KhmSettings {
             known_hosts: "~/.ssh/known_hosts".to_string(),
             basic_auth: String::new(),
             in_place: false,
+            auto_sync_interval_minutes: 60, // Default to 1 hour
         }
     }
 }

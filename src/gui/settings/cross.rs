@@ -32,6 +32,11 @@ impl eframe::App for KhmSettingsWindow {
                 ui.text_edit_singleline(&mut self.settings.basic_auth);
             });
             
+            ui.horizontal(|ui| {
+                ui.label("Auto sync interval (minutes):");
+                ui.add(egui::DragValue::new(&mut self.settings.auto_sync_interval_minutes).range(5..=1440));
+            });
+            
             ui.checkbox(&mut self.settings.in_place, "Update known_hosts file in-place after sync");
             
             ui.separator();
@@ -58,7 +63,7 @@ pub fn run_settings_window() {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("KHM Settings")
-            .with_inner_size([450.0, 350.0]),
+            .with_inner_size([450.0, 385.0]),
         ..Default::default()
     };
     

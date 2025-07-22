@@ -91,7 +91,10 @@ fn create_tray_icon(settings: &KhmSettings) -> (TrayIcon, MenuId, MenuId, MenuId
     };
     menu.append(&MenuItem::new(flow_text, false, None)).unwrap();
     
-    let sync_text = format!("Auto sync: {}", if settings.in_place { "On" } else { "Off" });
+    let is_auto_sync_enabled = !settings.host.is_empty() && !settings.flow.is_empty() && settings.in_place;
+    let sync_text = format!("Auto sync: {} ({}min)", 
+                           if is_auto_sync_enabled { "On" } else { "Off" },
+                           settings.auto_sync_interval_minutes);
     menu.append(&MenuItem::new(&sync_text, false, None)).unwrap();
     
     menu.append(&tray_icon::menu::PredefinedMenuItem::separator()).unwrap();
@@ -133,6 +136,7 @@ struct Application {
     settings: Arc<Mutex<KhmSettings>>,
     _debouncer: Option<notify_debouncer_mini::Debouncer<notify::FsEventWatcher>>,
     proxy: EventLoopProxy<UserEvent>,
+    auto_sync_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Application {
@@ -145,6 +149,7 @@ impl Application {
             settings: Arc::new(Mutex::new(load_settings())),
             _debouncer: None,
             proxy,
+            auto_sync_handle: None,
         }
     }
     
@@ -168,7 +173,10 @@ impl Application {
             };
             menu.append(&MenuItem::new(flow_text, false, None)).unwrap();
             
-            let sync_text = format!("Auto sync: {}", if settings.in_place { "On" } else { "Off" });
+            let is_auto_sync_enabled = !settings.host.is_empty() && !settings.flow.is_empty() && settings.in_place;
+            let sync_text = format!("Auto sync: {} ({}min)", 
+                                   if is_auto_sync_enabled { "On" } else { "Off" },
+                                   settings.auto_sync_interval_minutes);
             menu.append(&MenuItem::new(&sync_text, false, None)).unwrap();
             
             menu.append(&tray_icon::menu::PredefinedMenuItem::separator()).unwrap();
@@ -225,6 +233,60 @@ impl Application {
             }
         }
     }
+    
+    fn start_auto_sync(&mut self) {
+        let settings = self.settings.lock().unwrap().clone();
+        
+        // Only start auto sync if settings are valid and in_place is enabled
+        if settings.host.is_empty() || settings.flow.is_empty() || !settings.in_place {
+            info!("Auto sync disabled or settings invalid");
+            return;
+        }
+        
+        info!("Starting auto sync with interval {} minutes", settings.auto_sync_interval_minutes);
+        
+        let settings_clone = Arc::clone(&self.settings);
+        let interval_minutes = settings.auto_sync_interval_minutes;
+        
+        let handle = std::thread::spawn(move || {
+            // Initial sync on startup
+            info!("Performing initial sync on startup");
+            let current_settings = settings_clone.lock().unwrap().clone();
+            if !current_settings.host.is_empty() && !current_settings.flow.is_empty() {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    if let Err(e) = perform_sync(&current_settings).await {
+                        error!("Initial sync failed: {}", e);
+                    } else {
+                        info!("Initial sync completed successfully");
+                    }
+                });
+            }
+            
+            // Periodic sync
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(interval_minutes as u64 * 60));
+                
+                let current_settings = settings_clone.lock().unwrap().clone();
+                if current_settings.host.is_empty() || current_settings.flow.is_empty() || !current_settings.in_place {
+                    info!("Auto sync stopped due to invalid settings or disabled in_place");
+                    break;
+                }
+                
+                info!("Performing scheduled auto sync");
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    if let Err(e) = perform_sync(&current_settings).await {
+                        error!("Auto sync failed: {}", e);
+                    } else {
+                        info!("Auto sync completed successfully");
+                    }
+                });
+            }
+        });
+        
+        self.auto_sync_handle = Some(handle);
+    }
 }
 
 impl ApplicationHandler<UserEvent> for Application {
@@ -248,6 +310,7 @@ impl ApplicationHandler<UserEvent> for Application {
             self.sync_id = Some(sync_id);
             
             self.setup_file_watcher();
+            self.start_auto_sync();
             info!("KHM tray application ready");
         }
     }
@@ -301,8 +364,18 @@ impl ApplicationHandler<UserEvent> for Application {
             UserEvent::ConfigFileChanged => {
                 debug!("Config file changed");
                 let new_settings = load_settings();
+                let old_interval = self.settings.lock().unwrap().auto_sync_interval_minutes;
+                let new_interval = new_settings.auto_sync_interval_minutes;
+                
                 *self.settings.lock().unwrap() = new_settings;
                 self.update_menu();
+                
+                // Restart auto sync if interval changed or settings changed
+                if old_interval != new_interval {
+                    info!("Auto sync interval changed from {} to {} minutes, restarting auto sync", old_interval, new_interval);
+                    // Note: The auto sync thread will automatically stop and restart based on settings
+                    self.start_auto_sync();
+                }
             }
         }
     }
