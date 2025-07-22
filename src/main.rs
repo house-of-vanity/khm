@@ -11,7 +11,7 @@ use log::{error, info};
 /// This application manages SSH keys and flows, either as a server or client.
 /// In server mode, it stores keys and flows in a PostgreSQL database.
 /// In client mode, it sends keys to the server and can update the known_hosts file with keys from the server.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(
     author = env!("CARGO_PKG_AUTHORS"),
     version = env!("CARGO_PKG_VERSION"),
@@ -27,7 +27,7 @@ use log::{error, info};
     \n\
     "
 )]
-struct Args {
+pub struct Args {
     /// Run in server mode (default: false)
     #[arg(long, help = "Run in server mode")]
     server: bool,

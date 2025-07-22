@@ -24,7 +24,7 @@ pub fn run_settings_window() {
 }
 
 // Function to perform sync operation using KHM client logic
-async fn perform_sync(settings: &KhmSettings) -> std::io::Result<()> {
+async fn perform_sync(settings: &KhmSettings) -> Result<usize, std::io::Error> {
     use crate::Args;
     
     info!("Starting sync with settings: host={}, flow={}, known_hosts={}, in_place={}", 
@@ -51,7 +51,23 @@ async fn perform_sync(settings: &KhmSettings) -> std::io::Result<()> {
     
     info!("Expanded known_hosts path: {}", args.known_hosts);
     
-    crate::client::run_client(args).await
+    // Get keys count before and after sync
+    let keys_before = crate::client::read_known_hosts(&args.known_hosts)
+        .unwrap_or_else(|_| Vec::new())
+        .len();
+    
+    crate::client::run_client(args.clone()).await?;
+    
+    let keys_after = if args.in_place {
+        crate::client::read_known_hosts(&args.known_hosts)
+            .unwrap_or_else(|_| Vec::new())
+            .len()
+    } else {
+        keys_before
+    };
+    
+    info!("Sync completed: {} keys before, {} keys after", keys_before, keys_after);
+    Ok(keys_after)
 }
 
 #[derive(Debug)]
@@ -59,9 +75,27 @@ enum UserEvent {
     TrayIconEvent,
     MenuEvent(tray_icon::menu::MenuEvent),
     ConfigFileChanged,
+    UpdateMenu,
 }
 
-fn create_tray_icon(settings: &KhmSettings) -> (TrayIcon, MenuId, MenuId, MenuId) {
+#[derive(Debug, Clone)]
+struct SyncStatus {
+    last_sync_time: Option<std::time::Instant>,
+    last_sync_keys: Option<usize>,
+    next_sync_in_seconds: Option<u64>,
+}
+
+impl Default for SyncStatus {
+    fn default() -> Self {
+        Self {
+            last_sync_time: None,
+            last_sync_keys: None,
+            next_sync_in_seconds: None,
+        }
+    }
+}
+
+fn create_tray_icon(settings: &KhmSettings, sync_status: &SyncStatus) -> (TrayIcon, MenuId, MenuId, MenuId) {
     // Create simple blue icon with "KHM" text representation
     let icon_data: Vec<u8> = (0..32*32).flat_map(|i| {
         let y = i / 32;
@@ -76,7 +110,7 @@ fn create_tray_icon(settings: &KhmSettings) -> (TrayIcon, MenuId, MenuId, MenuId
     let icon = tray_icon::Icon::from_rgba(icon_data, 32, 32).unwrap();
     let menu = Menu::new();
     
-    // Show current configuration status
+    // Show current configuration status (static)
     let host_text = if settings.host.is_empty() {
         "Host: Not configured"
     } else {
@@ -118,8 +152,16 @@ fn create_tray_icon(settings: &KhmSettings) -> (TrayIcon, MenuId, MenuId, MenuId
     let quit_id = quit_item.id().clone();
     menu.append(&quit_item).unwrap();
     
+    // Create initial tooltip
+    let mut tooltip = format!("KHM - SSH Key Manager\nHost: {}\nFlow: {}", settings.host, settings.flow);
+    if let Some(keys_count) = sync_status.last_sync_keys {
+        tooltip.push_str(&format!("\nLast sync: {} keys", keys_count));
+    } else {
+        tooltip.push_str("\nLast sync: Never");
+    }
+    
     let tray_icon = TrayIconBuilder::new()
-        .with_tooltip("KHM - SSH Key Manager")
+        .with_tooltip(&tooltip)
         .with_icon(icon)
         .with_menu(Box::new(menu))
         .build()
@@ -134,6 +176,7 @@ struct Application {
     quit_id: Option<MenuId>,
     sync_id: Option<MenuId>,
     settings: Arc<Mutex<KhmSettings>>,
+    sync_status: Arc<Mutex<SyncStatus>>,
     _debouncer: Option<notify_debouncer_mini::Debouncer<notify::FsEventWatcher>>,
     proxy: EventLoopProxy<UserEvent>,
     auto_sync_handle: Option<std::thread::JoinHandle<()>>,
@@ -147,6 +190,7 @@ impl Application {
             quit_id: None,
             sync_id: None,
             settings: Arc::new(Mutex::new(load_settings())),
+            sync_status: Arc::new(Mutex::new(SyncStatus::default())),
             _debouncer: None,
             proxy,
             auto_sync_handle: None,
@@ -158,7 +202,7 @@ impl Application {
             let settings = self.settings.lock().unwrap();
             let menu = Menu::new();
             
-            // Show current configuration status
+            // Show current configuration status (static)
             let host_text = if settings.host.is_empty() {
                 "Host: Not configured"
             } else {
@@ -246,6 +290,8 @@ impl Application {
         info!("Starting auto sync with interval {} minutes", settings.auto_sync_interval_minutes);
         
         let settings_clone = Arc::clone(&self.settings);
+        let sync_status_clone = Arc::clone(&self.sync_status);
+        let proxy_clone = self.proxy.clone();
         let interval_minutes = settings.auto_sync_interval_minutes;
         
         let handle = std::thread::spawn(move || {
@@ -255,13 +301,29 @@ impl Application {
             if !current_settings.host.is_empty() && !current_settings.flow.is_empty() {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
-                    if let Err(e) = perform_sync(&current_settings).await {
-                        error!("Initial sync failed: {}", e);
-                    } else {
-                        info!("Initial sync completed successfully");
+                    match perform_sync(&current_settings).await {
+                        Ok(keys_count) => {
+                            info!("Initial sync completed successfully with {} keys", keys_count);
+                            let mut status = sync_status_clone.lock().unwrap();
+                            status.last_sync_time = Some(std::time::Instant::now());
+                            status.last_sync_keys = Some(keys_count);
+                            let _ = proxy_clone.send_event(UserEvent::UpdateMenu);
+                        }
+                        Err(e) => {
+                            error!("Initial sync failed: {}", e);
+                        }
                     }
                 });
             }
+            
+            // Start menu update timer
+            let proxy_timer = proxy_clone.clone();
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    let _ = proxy_timer.send_event(UserEvent::UpdateMenu);
+                }
+            });
             
             // Periodic sync
             loop {
@@ -276,10 +338,17 @@ impl Application {
                 info!("Performing scheduled auto sync");
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
-                    if let Err(e) = perform_sync(&current_settings).await {
-                        error!("Auto sync failed: {}", e);
-                    } else {
-                        info!("Auto sync completed successfully");
+                    match perform_sync(&current_settings).await {
+                        Ok(keys_count) => {
+                            info!("Auto sync completed successfully with {} keys", keys_count);
+                            let mut status = sync_status_clone.lock().unwrap();
+                            status.last_sync_time = Some(std::time::Instant::now());
+                            status.last_sync_keys = Some(keys_count);
+                            let _ = proxy_clone.send_event(UserEvent::UpdateMenu);
+                        }
+                        Err(e) => {
+                            error!("Auto sync failed: {}", e);
+                        }
                     }
                 });
             }
@@ -301,8 +370,10 @@ impl ApplicationHandler<UserEvent> for Application {
         if self.tray_icon.is_none() {
             info!("Creating tray icon");
             let settings = self.settings.lock().unwrap();
-            let (tray_icon, settings_id, quit_id, sync_id) = create_tray_icon(&settings);
+            let sync_status = self.sync_status.lock().unwrap();
+            let (tray_icon, settings_id, quit_id, sync_id) = create_tray_icon(&settings, &sync_status);
             drop(settings);
+            drop(sync_status);
             
             self.tray_icon = Some(tray_icon);
             self.settings_id = Some(settings_id);
@@ -318,6 +389,47 @@ impl ApplicationHandler<UserEvent> for Application {
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::TrayIconEvent => {}
+            UserEvent::UpdateMenu => {
+                // Update tooltip with sync status instead of menu items
+                let settings = self.settings.lock().unwrap();
+                if !settings.host.is_empty() && !settings.flow.is_empty() && settings.in_place {
+                    let mut sync_status = self.sync_status.lock().unwrap();
+                    if let Some(last_sync) = sync_status.last_sync_time {
+                        let elapsed = last_sync.elapsed().as_secs();
+                        let interval_seconds = settings.auto_sync_interval_minutes as u64 * 60;
+                        
+                        if elapsed < interval_seconds {
+                            sync_status.next_sync_in_seconds = Some(interval_seconds - elapsed);
+                        } else {
+                            sync_status.next_sync_in_seconds = Some(0);
+                        }
+                    } else {
+                        sync_status.next_sync_in_seconds = None;
+                    }
+                    
+                    // Update tooltip with current status
+                    if let Some(tray_icon) = &self.tray_icon {
+                        let mut tooltip = format!("KHM - SSH Key Manager\nHost: {}\nFlow: {}", settings.host, settings.flow);
+                        
+                        if let Some(keys_count) = sync_status.last_sync_keys {
+                            tooltip.push_str(&format!("\nLast sync: {} keys", keys_count));
+                        } else {
+                            tooltip.push_str("\nLast sync: Never");
+                        }
+                        
+                        if let Some(seconds) = sync_status.next_sync_in_seconds {
+                            if seconds > 60 {
+                                tooltip.push_str(&format!("\nNext sync: {}m {}s", seconds / 60, seconds % 60));
+                            } else {
+                                tooltip.push_str(&format!("\nNext sync: {}s", seconds));
+                            }
+                        }
+                        
+                        tray_icon.set_tooltip(Some(&tooltip));
+                    }
+                }
+                drop(settings);
+            }
             UserEvent::MenuEvent(event) => {
                 if let (Some(settings_id), Some(quit_id), Some(sync_id)) = (&self.settings_id, &self.quit_id, &self.sync_id) {
                     if event.id == *settings_id {
@@ -339,6 +451,8 @@ impl ApplicationHandler<UserEvent> for Application {
                     } else if event.id == *sync_id {
                         info!("Starting sync operation");
                         let settings = self.settings.lock().unwrap().clone();
+                        let sync_status_clone = Arc::clone(&self.sync_status);
+                        let proxy_clone = self.proxy.clone();
                         
                         // Check if settings are valid
                         if settings.host.is_empty() || settings.flow.is_empty() {
@@ -350,10 +464,17 @@ impl ApplicationHandler<UserEvent> for Application {
                             std::thread::spawn(move || {
                                 let rt = tokio::runtime::Runtime::new().unwrap();
                                 rt.block_on(async {
-                                    if let Err(e) = perform_sync(&settings).await {
-                                        error!("Sync failed: {}", e);
-                                    } else {
-                                        info!("Sync completed successfully");
+                                    match perform_sync(&settings).await {
+                                        Ok(keys_count) => {
+                                            info!("Sync completed successfully with {} keys", keys_count);
+                                            let mut status = sync_status_clone.lock().unwrap();
+                                            status.last_sync_time = Some(std::time::Instant::now());
+                                            status.last_sync_keys = Some(keys_count);
+                                            let _ = proxy_clone.send_event(UserEvent::UpdateMenu);
+                                        }
+                                        Err(e) => {
+                                            error!("Sync failed: {}", e);
+                                        }
                                     }
                                 });
                             });
@@ -369,6 +490,29 @@ impl ApplicationHandler<UserEvent> for Application {
                 
                 *self.settings.lock().unwrap() = new_settings;
                 self.update_menu();
+                
+                // Update tooltip with new settings
+                if let Some(tray_icon) = &self.tray_icon {
+                    let settings = self.settings.lock().unwrap();
+                    let sync_status = self.sync_status.lock().unwrap();
+                    let mut tooltip = format!("KHM - SSH Key Manager\nHost: {}\nFlow: {}", settings.host, settings.flow);
+                    
+                    if let Some(keys_count) = sync_status.last_sync_keys {
+                        tooltip.push_str(&format!("\nLast sync: {} keys", keys_count));
+                    } else {
+                        tooltip.push_str("\nLast sync: Never");
+                    }
+                    
+                    if let Some(seconds) = sync_status.next_sync_in_seconds {
+                        if seconds > 60 {
+                            tooltip.push_str(&format!("\nNext sync: {}m {}s", seconds / 60, seconds % 60));
+                        } else {
+                            tooltip.push_str(&format!("\nNext sync: {}s", seconds));
+                        }
+                    }
+                    
+                    tray_icon.set_tooltip(Some(&tooltip));
+                }
                 
                 // Restart auto sync if interval changed or settings changed
                 if old_interval != new_interval {

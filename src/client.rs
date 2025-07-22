@@ -8,14 +8,14 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-struct SshKey {
+pub struct SshKey {
     server: String,
     public_key: String,
     #[serde(default)]
     deprecated: bool,
 }
 
-fn read_known_hosts(file_path: &str) -> io::Result<Vec<SshKey>> {
+pub fn read_known_hosts(file_path: &str) -> io::Result<Vec<SshKey>> {
     let path = Path::new(file_path);
     let file = File::open(&path)?;
     let reader = io::BufReader::new(file);
