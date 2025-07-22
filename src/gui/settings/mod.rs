@@ -73,7 +73,8 @@ async fn fetch_admin_keys(host: String, flow: String, basic_auth: String) -> Res
     info!("Fetching admin keys from: {}", url);
     
     let client_builder = Client::builder()
-        .timeout(std::time::Duration::from_secs(30));
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none()); // Don't follow redirects
     
     let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     
@@ -92,12 +93,27 @@ async fn fetch_admin_keys(host: String, flow: String, basic_auth: String) -> Res
     let response = request.send().await
         .map_err(|e| format!("Request failed: {}", e))?;
     
+    // Check for authentication required
+    if response.status().as_u16() == 401 {
+        return Err("Authentication required. Please provide valid basic auth credentials.".to_string());
+    }
+    
+    // Check for redirects (usually to login page)
+    if response.status().as_u16() >= 300 && response.status().as_u16() < 400 {
+        return Err("Server redirects to login page. Authentication may be required.".to_string());
+    }
+    
     if !response.status().is_success() {
         return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
     }
     
     let body = response.text().await
         .map_err(|e| format!("Failed to read response: {}", e))?;
+    
+    // Check if response looks like HTML (login page)
+    if body.trim_start().starts_with("<!DOCTYPE") || body.trim_start().starts_with("<html") {
+        return Err("Server returned HTML page instead of JSON. This usually means authentication is required or the endpoint is incorrect.".to_string());
+    }
     
     let keys: Vec<SshKey> = serde_json::from_str(&body)
         .map_err(|e| format!("Failed to parse response: {}", e))?;
@@ -106,12 +122,26 @@ async fn fetch_admin_keys(host: String, flow: String, basic_auth: String) -> Res
     Ok(keys)
 }
 
+fn get_default_known_hosts_path() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            format!("{}/.ssh/known_hosts", user_profile)
+        } else {
+            "~/.ssh/known_hosts".to_string()
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        "~/.ssh/known_hosts".to_string()
+    }
+}
 impl Default for KhmSettings {
     fn default() -> Self {
         Self {
             host: String::new(),
             flow: String::new(),
-            known_hosts: "~/.ssh/known_hosts".to_string(),
+            known_hosts: get_default_known_hosts_path(),
             basic_auth: String::new(),
             in_place: true,
             auto_sync_interval_minutes: 60,
@@ -130,10 +160,19 @@ pub fn get_config_path() -> PathBuf {
 pub fn load_settings() -> KhmSettings {
     let path = get_config_path();
     match fs::read_to_string(&path) {
-        Ok(contents) => serde_json::from_str(&contents).unwrap_or_else(|e| {
-            error!("Failed to parse KHM config: {}", e);
-            KhmSettings::default()
-        }),
+        Ok(contents) => {
+            let mut settings: KhmSettings = serde_json::from_str(&contents).unwrap_or_else(|e| {
+                error!("Failed to parse KHM config: {}", e);
+                KhmSettings::default()
+            });
+            
+            // Fill in default known_hosts path if empty
+            if settings.known_hosts.is_empty() {
+                settings.known_hosts = get_default_known_hosts_path();
+            }
+            
+            settings
+        }
         Err(_) => {
             debug!("KHM config file not found, using defaults");
             KhmSettings::default()
@@ -169,6 +208,9 @@ struct KhmSettingsWindow {
     admin_receiver: Option<mpsc::Receiver<Result<Vec<SshKey>, String>>>,
     operation_receiver: Option<mpsc::Receiver<Result<String, String>>>,
     current_tab: SettingsTab,
+    is_syncing: bool,
+    sync_result_receiver: Option<mpsc::Receiver<Result<String, String>>>,
+    sync_status: SyncStatus,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -181,6 +223,13 @@ enum SettingsTab {
 enum ConnectionStatus {
     Unknown,
     Connected { keys_count: usize, flow: String },
+    Error(String),
+}
+
+#[derive(Debug, Clone)]
+enum SyncStatus {
+    Unknown,
+    Success { keys_count: usize },
     Error(String),
 }
 
@@ -234,6 +283,59 @@ impl eframe::App for KhmSettingsWindow {
             }
         }
         
+        // Check for sync result
+        if let Some(receiver) = &self.sync_result_receiver {
+            if let Ok(result) = receiver.try_recv() {
+                self.is_syncing = false;
+                match result {
+                    Ok(message) => {
+                        info!("Parsing sync result message: '{}'", message);
+                        
+                        // Parse keys count from message - fix parsing patterns
+                        let keys_count = if let Some(start) = message.find("updated with ") {
+                            let search_start = start + "updated with ".len();
+                            if let Some(end) = message[search_start..].find(" keys") {
+                                let number_str = &message[search_start..search_start + end];
+                                info!("Found 'updated with' pattern, parsing: '{}'", number_str);
+                                number_str.parse::<usize>().unwrap_or(0)
+                            } else { 0 }
+                        } else if let Some(start) = message.find("Retrieved ") {
+                            let search_start = start + "Retrieved ".len();
+                            if let Some(end) = message[search_start..].find(" keys") {
+                                let number_str = &message[search_start..search_start + end];
+                                info!("Found 'Retrieved' pattern, parsing: '{}'", number_str);
+                                number_str.parse::<usize>().unwrap_or(0)
+                            } else { 0 }
+                        } else {
+                            // Try to extract any number followed by "keys" in the message
+                            if let Some(keys_pos) = message.find(" keys") {
+                                let before_keys = &message[..keys_pos];
+                                // Find the last number in the string before "keys"
+                                if let Some(space_pos) = before_keys.rfind(' ') {
+                                    let number_str = &before_keys[space_pos + 1..];
+                                    info!("Found fallback pattern, parsing: '{}'", number_str);
+                                    number_str.parse::<usize>().unwrap_or(0)
+                                } else {
+                                    0
+                                }
+                            } else {
+                                0
+                            }
+                        };
+                        
+                        info!("Parsed keys count: {}", keys_count);
+                        self.sync_status = SyncStatus::Success { keys_count };
+                        info!("Sync successful: {}", message);
+                    }
+                    Err(error) => {
+                        self.sync_status = SyncStatus::Error(error.clone());
+                        error!("Sync failed: {}", error);
+                    }
+                }
+                self.sync_result_receiver = None;
+                ctx.request_repaint();
+            }
+        }
         // Check for operation results
         if let Some(receiver) = &self.operation_receiver {
             if let Ok(result) = receiver.try_recv() {
@@ -299,221 +401,266 @@ impl eframe::App for KhmSettingsWindow {
 
 impl KhmSettingsWindow {
     fn render_connection_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        // Connection section
-        ui.group(|ui| {
-            ui.set_min_width(ui.available_width());
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("🌐 Connection").size(16.0).strong());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let mut connected = matches!(self.connection_status, ConnectionStatus::Connected { .. });
-                        ui.add_enabled(false, egui::Checkbox::new(&mut connected, "Connected"));
+        let available_height = ui.available_height();
+        let button_area_height = 120.0; // Reserve space for buttons and status
+        let content_height = available_height - button_area_height;
+        
+        // Main content area (scrollable)
+        ui.allocate_ui_with_layout(
+            [ui.available_width(), content_height].into(),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        // Connection section
+                        ui.group(|ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.vertical(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("🌐 Connection").size(16.0).strong());
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        let mut connected = matches!(self.connection_status, ConnectionStatus::Connected { .. });
+                                        ui.add_enabled(false, egui::Checkbox::new(&mut connected, "Connected"));
+                                        
+                                        if self.is_testing_connection {
+                                            ui.spinner();
+                                            ui.label(egui::RichText::new("Testing...").italics());
+                                        } else {
+                                            match &self.connection_status {
+                                                ConnectionStatus::Unknown => {
+                                                    ui.label(egui::RichText::new("Not tested").color(egui::Color32::GRAY));
+                                                }
+                                                ConnectionStatus::Connected { keys_count, flow } => {
+                                                    ui.label(egui::RichText::new("✅").color(egui::Color32::GREEN));
+                                                    ui.label(egui::RichText::new(format!("{} keys in '{}'", keys_count, flow))
+                                                        .color(egui::Color32::LIGHT_GREEN));
+                                                }
+                                                ConnectionStatus::Error(err) => {
+                                                    ui.label(egui::RichText::new("❌").color(egui::Color32::RED))
+                                                        .on_hover_text(format!("Error: {}", err));
+                                                    ui.label(egui::RichText::new("Failed").color(egui::Color32::RED));
+                                                }
+                                            }
+                                        }
+                                    });
+                                });
+                                
+                                ui.add_space(5.0);
+                                
+                                egui::Grid::new("connection_grid")
+                                    .num_columns(2)
+                                    .min_col_width(120.0)
+                                    .spacing([10.0, 8.0])
+                                    .show(ui, |ui| {
+                                        ui.label("Host URL:");
+                                        ui.add_sized(
+                                            [ui.available_width(), 20.0],
+                                            egui::TextEdit::singleline(&mut self.settings.host)
+                                                .hint_text("https://your-khm-server.com")
+                                        );
+                                        ui.end_row();
+                                        
+                                        ui.label("Flow Name:");
+                                        ui.add_sized(
+                                            [ui.available_width(), 20.0],
+                                            egui::TextEdit::singleline(&mut self.settings.flow)
+                                                .hint_text("production, staging, etc.")
+                                        );
+                                        ui.end_row();
+                                        
+                                        ui.label("Basic Auth:");
+                                        ui.add_sized(
+                                            [ui.available_width(), 20.0],
+                                            egui::TextEdit::singleline(&mut self.settings.basic_auth)
+                                                .hint_text("username:password (optional)")
+                                                .password(true)
+                                        );
+                                        ui.end_row();
+                                    });
+                            });
+                        });
                         
-                        if self.is_testing_connection {
-                            ui.spinner();
-                            ui.label(egui::RichText::new("Testing...").italics());
+                        ui.add_space(10.0);
+                        
+                        // Local settings section
+                        ui.group(|ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new("📁 Local Settings").size(16.0).strong());
+                                ui.add_space(8.0);
+                                
+                                egui::Grid::new("local_grid")
+                                    .num_columns(2)
+                                    .min_col_width(120.0)
+                                    .spacing([10.0, 8.0])
+                                    .show(ui, |ui| {
+                                        ui.label("Known Hosts File:");
+                                        ui.add_sized(
+                                            [ui.available_width(), 20.0],
+                                            egui::TextEdit::singleline(&mut self.settings.known_hosts)
+                                                .hint_text("~/.ssh/known_hosts")
+                                        );
+                                        ui.end_row();
+                                    });
+                                
+                                ui.add_space(8.0);
+                                ui.checkbox(&mut self.settings.in_place, "✏ Update known_hosts file in-place after sync");
+                            });
+                        });
+                        
+                        ui.add_space(15.0);
+                        
+                        // Auto-sync section
+                        ui.group(|ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new("🔄 Auto Sync").size(16.0).strong());
+                                ui.add_space(8.0);
+                                
+                                let is_auto_sync_enabled = !self.settings.host.is_empty() 
+                                    && !self.settings.flow.is_empty() 
+                                    && self.settings.in_place;
+                                
+                                ui.horizontal(|ui| {
+                                    ui.label("Interval (minutes):");
+                                    ui.add_sized(
+                                        [80.0, 20.0],
+                                        egui::TextEdit::singleline(&mut self.auto_sync_interval_str)
+                                    );
+                                    
+                                    if let Ok(value) = self.auto_sync_interval_str.parse::<u32>() {
+                                        if value > 0 {
+                                            self.settings.auto_sync_interval_minutes = value;
+                                        }
+                                    }
+                                    
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        if is_auto_sync_enabled {
+                                            ui.label(egui::RichText::new("🔄 Enabled").color(egui::Color32::GREEN));
+                                        } else {
+                                            ui.label(egui::RichText::new("❌ Disabled").color(egui::Color32::YELLOW));
+                                            ui.label("(Configure host, flow & enable in-place sync)");
+                                        }
+                                    });
+                                });
+                            });
+                        });
+                        
+                        ui.add_space(10.0);
+                        
+                        // Advanced settings (collapsible)
+                        ui.collapsing("🔧 Advanced Settings", |ui| {
+                            ui.indent("advanced", |ui| {
+                                ui.label("Configuration details:");
+                                ui.add_space(5.0);
+                                
+                                ui.horizontal(|ui| {
+                                    ui.label("Config file:");
+                                    let config_path = get_config_path();
+                                    ui.label(egui::RichText::new(config_path.display().to_string())
+                                        .font(egui::FontId::monospace(12.0))
+                                        .color(egui::Color32::LIGHT_GRAY));
+                                });
+                                
+                                ui.add_space(8.0);
+                                ui.label("Current configuration:");
+                                
+                                ui.add_sized(
+                                    [ui.available_width(), 120.0],
+                                    egui::TextEdit::multiline(&mut self.config_content.clone())
+                                        .font(egui::FontId::monospace(11.0))
+                                        .interactive(false)
+                                );
+                            });
+                        });
+                    });
+            },
+        );
+        
+        // Bottom area with buttons (fixed position)
+        ui.allocate_ui_with_layout(
+            [ui.available_width(), button_area_height].into(),
+            egui::Layout::bottom_up(egui::Align::Min),
+            |ui| {
+                // Show sync status
+                match &self.sync_status {
+                    SyncStatus::Success { keys_count } => {
+                        ui.label(egui::RichText::new(format!("✅ Last sync successful: {} keys", keys_count))
+                            .color(egui::Color32::GREEN));
+                    }
+                    SyncStatus::Error(err) => {
+                        ui.label(egui::RichText::new(format!("❌ Sync failed: {}", err))
+                            .color(egui::Color32::RED));
+                    }
+                    SyncStatus::Unknown => {}
+                }
+                
+                // Show validation hints
+                let save_enabled = !self.settings.host.is_empty() && !self.settings.flow.is_empty();
+                if !save_enabled {
+                    ui.label(egui::RichText::new("❗ Please fill in Host URL and Flow Name to save settings")
+                        .color(egui::Color32::YELLOW)
+                        .italics());
+                }
+                
+                ui.add_space(5.0);
+                
+                // Action buttons
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(
+                        save_enabled,
+                        egui::Button::new("💾 Save Settings")
+                            .min_size(egui::vec2(120.0, 32.0))
+                    ).clicked() {
+                        if let Err(e) = save_settings(&self.settings) {
+                            error!("Failed to save KHM settings: {}", e);
                         } else {
-                            match &self.connection_status {
-                                ConnectionStatus::Unknown => {
-                                    ui.label(egui::RichText::new("Not tested").color(egui::Color32::GRAY));
-                                }
-                                ConnectionStatus::Connected { keys_count, flow } => {
-                                    ui.label(egui::RichText::new("✅").color(egui::Color32::GREEN));
-                                    ui.label(egui::RichText::new(format!("{} keys in '{}'", keys_count, flow))
-                                        .color(egui::Color32::LIGHT_GREEN));
-                                }
-                                ConnectionStatus::Error(err) => {
-                                    ui.label(egui::RichText::new("✗").color(egui::Color32::RED))
-                                        .on_hover_text(format!("Error: {}", err));
-                                    ui.label(egui::RichText::new("Failed").color(egui::Color32::RED));
-                                }
-                            }
+                            info!("KHM settings saved successfully");
                         }
-                    });
-                });
-                
-                ui.add_space(8.0);
-                
-                egui::Grid::new("connection_grid")
-                    .num_columns(2)
-                    .min_col_width(120.0)
-                    .spacing([10.0, 8.0])
-                    .show(ui, |ui| {
-                        ui.label("Host URL:");
-                        ui.add_sized(
-                            [ui.available_width(), 20.0],
-                            egui::TextEdit::singleline(&mut self.settings.host)
-                                .hint_text("https://your-khm-server.com")
-                        );
-                        ui.end_row();
-                        
-                        ui.label("Flow Name:");
-                        ui.add_sized(
-                            [ui.available_width(), 20.0],
-                            egui::TextEdit::singleline(&mut self.settings.flow)
-                                .hint_text("production, staging, etc.")
-                        );
-                        ui.end_row();
-                        
-                        ui.label("Basic Auth:");
-                        ui.add_sized(
-                            [ui.available_width(), 20.0],
-                            egui::TextEdit::singleline(&mut self.settings.basic_auth)
-                                .hint_text("username:password (optional)")
-                                .password(true)
-                        );
-                        ui.end_row();
-                    });
-            });
-        });
-        
-        ui.add_space(15.0);
-        
-        // Local settings section
-        ui.group(|ui| {
-            ui.set_min_width(ui.available_width());
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new("📁 Local Settings").size(16.0).strong());
-                ui.add_space(8.0);
-                
-                egui::Grid::new("local_grid")
-                    .num_columns(2)
-                    .min_col_width(120.0)
-                    .spacing([10.0, 8.0])
-                    .show(ui, |ui| {
-                        ui.label("Known Hosts File:");
-                        ui.add_sized(
-                            [ui.available_width(), 20.0],
-                            egui::TextEdit::singleline(&mut self.settings.known_hosts)
-                                .hint_text("~/.ssh/known_hosts")
-                        );
-                        ui.end_row();
-                    });
-                
-                ui.add_space(8.0);
-                ui.checkbox(&mut self.settings.in_place, "✏ Update known_hosts file in-place after sync");
-            });
-        });
-        
-        ui.add_space(15.0);
-        
-        // Auto-sync section
-        ui.group(|ui| {
-            ui.set_min_width(ui.available_width());
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new("🔄 Auto Sync").size(16.0).strong());
-                ui.add_space(8.0);
-                
-                let is_auto_sync_enabled = !self.settings.host.is_empty() 
-                    && !self.settings.flow.is_empty() 
-                    && self.settings.in_place;
-                
-                ui.horizontal(|ui| {
-                    ui.label("Interval (minutes):");
-                    ui.add_sized(
-                        [80.0, 20.0],
-                        egui::TextEdit::singleline(&mut self.auto_sync_interval_str)
-                    );
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
                     
-                    if let Ok(value) = self.auto_sync_interval_str.parse::<u32>() {
-                        if value > 0 {
-                            self.settings.auto_sync_interval_minutes = value;
-                        }
+                    if ui.add(
+                        egui::Button::new("✖ Cancel")
+                            .min_size(egui::vec2(80.0, 32.0))
+                    ).clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if is_auto_sync_enabled {
-                            ui.label(egui::RichText::new("🔄 Enabled").color(egui::Color32::GREEN));
-                        } else {
-                            ui.label(egui::RichText::new("❌ Disabled").color(egui::Color32::YELLOW));
-                            ui.label("(Configure host, flow & enable in-place sync)");
+                        let can_test = !self.settings.host.is_empty() && !self.settings.flow.is_empty() && !self.is_testing_connection;
+                        let can_sync = !self.settings.host.is_empty() && !self.settings.flow.is_empty() && !self.is_syncing;
+                        
+                        if ui.add_enabled(
+                            can_test,
+                            egui::Button::new(
+                                if self.is_testing_connection {
+                                    "▶ Testing..."
+                                } else {
+                                    "🔍 Test Connection"
+                                }
+                            ).min_size(egui::vec2(120.0, 32.0))
+                        ).clicked() {
+                            self.start_connection_test(ctx);
+                        }
+                        
+                        if ui.add_enabled(
+                            can_sync,
+                            egui::Button::new(
+                                if self.is_syncing {
+                                    "🔄 Syncing..."
+                                } else {
+                                    "🔄 Sync Now"
+                                }
+                            ).min_size(egui::vec2(100.0, 32.0))
+                        ).clicked() {
+                            self.start_manual_sync(ctx);
                         }
                     });
                 });
-            });
-        });
-        
-        ui.add_space(15.0);
-        
-        // Advanced settings (collapsible)
-        ui.collapsing("🔧 Advanced Settings", |ui| {
-            ui.indent("advanced", |ui| {
-                ui.label("Configuration details:");
-                ui.add_space(5.0);
-                
-                ui.horizontal(|ui| {
-                    ui.label("Config file:");
-                    let config_path = get_config_path();
-                    ui.label(egui::RichText::new(config_path.display().to_string())
-                        .font(egui::FontId::monospace(12.0))
-                        .color(egui::Color32::LIGHT_GRAY));
-                });
-                
-                ui.add_space(8.0);
-                ui.label("Current configuration:");
-                
-                ui.add_sized(
-                    [ui.available_width(), 120.0],
-                    egui::TextEdit::multiline(&mut self.config_content.clone())
-                        .font(egui::FontId::monospace(11.0))
-                        .interactive(false)
-                );
-            });
-        });
-        
-        ui.add_space(20.0);
-        ui.separator();
-        ui.add_space(15.0);
-        
-        // Action buttons
-        let save_enabled = !self.settings.host.is_empty() && !self.settings.flow.is_empty();
-        
-        ui.horizontal(|ui| {
-            if ui.add_enabled(
-                save_enabled,
-                egui::Button::new("💾 Save Settings")
-                    .min_size(egui::vec2(120.0, 32.0))
-            ).clicked() {
-                if let Err(e) = save_settings(&self.settings) {
-                    error!("Failed to save KHM settings: {}", e);
-                } else {
-                    info!("KHM settings saved successfully");
-                }
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-            
-            if ui.add(
-                egui::Button::new("✖ Cancel")
-                    .min_size(egui::vec2(80.0, 32.0))
-            ).clicked() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-            
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let can_test = !self.settings.host.is_empty() && !self.settings.flow.is_empty() && !self.is_testing_connection;
-                
-                if ui.add_enabled(
-                    can_test,
-                    egui::Button::new(
-                        if self.is_testing_connection {
-                            "▶ Testing..."
-                        } else {
-                            "🔍 Test Connection"
-                        }
-                    ).min_size(egui::vec2(120.0, 32.0))
-                ).clicked() {
-                    self.start_connection_test(ctx);
-                }
-            });
-        });
-        
-        // Show validation hints
-        if !save_enabled {
-            ui.add_space(5.0);
-            ui.label(egui::RichText::new("❗ Please fill in Host URL and Flow Name to save settings")
-                .color(egui::Color32::YELLOW)
-                .italics());
-        }
+            },
+        );
     }
 
     fn start_connection_test(&mut self, ctx: &egui::Context) {
@@ -536,6 +683,31 @@ impl KhmSettingsWindow {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let result = rt.block_on(async {
                 test_khm_connection(host, flow, basic_auth).await
+            });
+            
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+    }
+    
+    fn start_manual_sync(&mut self, ctx: &egui::Context) {
+        if self.is_syncing {
+            return;
+        }
+        
+        self.is_syncing = true;
+        self.sync_status = SyncStatus::Unknown;
+        
+        let (tx, rx) = mpsc::channel();
+        self.sync_result_receiver = Some(rx);
+        
+        let settings = self.settings.clone();
+        let ctx_clone = ctx.clone();
+        
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let result = rt.block_on(async {
+                perform_manual_sync(settings).await
             });
             
             let _ = tx.send(result);
@@ -866,7 +1038,7 @@ impl KhmSettingsWindow {
                     }
                     
                     // Modern expand/collapse button
-                    let expand_icon = if is_expanded { "🔺" } else { "🔻" };
+                    let expand_icon = if is_expanded { "▼" } else { "▶" };
                     if ui.add(egui::Button::new(expand_icon)
                         .fill(egui::Color32::TRANSPARENT)
                         .stroke(egui::Stroke::NONE)
@@ -1257,6 +1429,9 @@ pub fn run_settings_window() {
             admin_receiver: None,
             operation_receiver: None,
             current_tab: SettingsTab::Connection,
+            is_syncing: false,
+            sync_result_receiver: None,
+            sync_status: SyncStatus::Unknown,
         }))),
     );
 }
@@ -1293,7 +1468,8 @@ async fn bulk_deprecate_servers(host: String, flow: String, basic_auth: String, 
     info!("Bulk deprecating {} servers at: {}", servers.len(), url);
     
     let client_builder = Client::builder()
-        .timeout(std::time::Duration::from_secs(30));
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none());
     
     let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     
@@ -1314,6 +1490,16 @@ async fn bulk_deprecate_servers(host: String, flow: String, basic_auth: String, 
     
     let response = request.send().await
         .map_err(|e| format!("Request failed: {}", e))?;
+    
+    // Check for authentication required
+    if response.status().as_u16() == 401 {
+        return Err("Authentication required. Please provide valid basic auth credentials.".to_string());
+    }
+    
+    // Check for redirects (usually to login page)
+    if response.status().as_u16() >= 300 && response.status().as_u16() < 400 {
+        return Err("Server redirects to login page. Authentication may be required.".to_string());
+    }
     
     if !response.status().is_success() {
         return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
@@ -1343,7 +1529,8 @@ async fn bulk_restore_servers(host: String, flow: String, basic_auth: String, se
     info!("Bulk restoring {} servers at: {}", servers.len(), url);
     
     let client_builder = Client::builder()
-        .timeout(std::time::Duration::from_secs(30));
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none());
     
     let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     
@@ -1364,6 +1551,16 @@ async fn bulk_restore_servers(host: String, flow: String, basic_auth: String, se
     
     let response = request.send().await
         .map_err(|e| format!("Request failed: {}", e))?;
+    
+    // Check for authentication required
+    if response.status().as_u16() == 401 {
+        return Err("Authentication required. Please provide valid basic auth credentials.".to_string());
+    }
+    
+    // Check for redirects (usually to login page)
+    if response.status().as_u16() >= 300 && response.status().as_u16() < 400 {
+        return Err("Server redirects to login page. Authentication may be required.".to_string());
+    }
     
     if !response.status().is_success() {
         return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
@@ -1393,7 +1590,8 @@ async fn deprecate_key_by_server(host: String, flow: String, basic_auth: String,
     info!("Deprecating key for server '{}' at: {}", server, url);
     
     let client_builder = Client::builder()
-        .timeout(std::time::Duration::from_secs(30));
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none());
     
     let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     
@@ -1411,6 +1609,16 @@ async fn deprecate_key_by_server(host: String, flow: String, basic_auth: String,
     
     let response = request.send().await
         .map_err(|e| format!("Request failed: {}", e))?;
+    
+    // Check for authentication required
+    if response.status().as_u16() == 401 {
+        return Err("Authentication required. Please provide valid basic auth credentials.".to_string());
+    }
+    
+    // Check for redirects (usually to login page)
+    if response.status().as_u16() >= 300 && response.status().as_u16() < 400 {
+        return Err("Server redirects to login page. Authentication may be required.".to_string());
+    }
     
     if !response.status().is_success() {
         return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
@@ -1440,7 +1648,8 @@ async fn restore_key_by_server(host: String, flow: String, basic_auth: String, s
     info!("Restoring key for server '{}' at: {}", server, url);
     
     let client_builder = Client::builder()
-        .timeout(std::time::Duration::from_secs(30));
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none());
     
     let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     
@@ -1458,6 +1667,16 @@ async fn restore_key_by_server(host: String, flow: String, basic_auth: String, s
     
     let response = request.send().await
         .map_err(|e| format!("Request failed: {}", e))?;
+    
+    // Check for authentication required
+    if response.status().as_u16() == 401 {
+        return Err("Authentication required. Please provide valid basic auth credentials.".to_string());
+    }
+    
+    // Check for redirects (usually to login page)
+    if response.status().as_u16() >= 300 && response.status().as_u16() < 400 {
+        return Err("Server redirects to login page. Authentication may be required.".to_string());
+    }
     
     if !response.status().is_success() {
         return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
@@ -1487,7 +1706,8 @@ async fn permanently_delete_key_by_server(host: String, flow: String, basic_auth
     info!("Permanently deleting key for server '{}' at: {}", server, url);
     
     let client_builder = Client::builder()
-        .timeout(std::time::Duration::from_secs(30));
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none());
     
     let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     
@@ -1505,6 +1725,16 @@ async fn permanently_delete_key_by_server(host: String, flow: String, basic_auth
     
     let response = request.send().await
         .map_err(|e| format!("Request failed: {}", e))?;
+    
+    // Check for authentication required
+    if response.status().as_u16() == 401 {
+        return Err("Authentication required. Please provide valid basic auth credentials.".to_string());
+    }
+    
+    // Check for redirects (usually to login page)
+    if response.status().as_u16() >= 300 && response.status().as_u16() < 400 {
+        return Err("Server redirects to login page. Authentication may be required.".to_string());
+    }
     
     if !response.status().is_success() {
         return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
@@ -1534,7 +1764,8 @@ async fn test_khm_connection(host: String, flow: String, basic_auth: String) -> 
     info!("Testing connection to: {}", url);
     
     let client_builder = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10));
+        .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none()); // Don't follow redirects
     
     let client = client_builder.build().map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     
@@ -1553,6 +1784,16 @@ async fn test_khm_connection(host: String, flow: String, basic_auth: String) -> 
     let response = request.send().await
         .map_err(|e| format!("Connection failed: {}", e))?;
     
+    // Check for authentication required
+    if response.status().as_u16() == 401 {
+        return Err("Authentication required. Please provide valid basic auth credentials.".to_string());
+    }
+    
+    // Check for redirects (usually to login page)
+    if response.status().as_u16() >= 300 && response.status().as_u16() < 400 {
+        return Err("Server redirects to login page. Authentication may be required.".to_string());
+    }
+    
     if !response.status().is_success() {
         return Err(format!("Server returned error: {} {}", response.status().as_u16(), response.status().canonical_reason().unwrap_or("Unknown")));
     }
@@ -1560,7 +1801,6 @@ async fn test_khm_connection(host: String, flow: String, basic_auth: String) -> 
     let body = response.text().await
         .map_err(|e| format!("Failed to read response: {}", e))?;
     
-    // Parse JSON response to count SSH keys
     if body.trim().is_empty() {
         return Err("Server returned empty response".to_string());
     }
@@ -1571,23 +1811,87 @@ async fn test_khm_connection(host: String, flow: String, basic_auth: String) -> 
     match keys {
         Ok(key_array) => {
             let ssh_key_count = key_array.len();
-            if ssh_key_count == 0 {
-                return Err("No SSH keys found in response".to_string());
-            }
             Ok(format!("Connection successful! Found {} SSH keys in flow '{}'", ssh_key_count, flow))
         }
         Err(_) => {
+            // Check if response looks like HTML (login page)
+            if body.trim_start().starts_with("<!DOCTYPE") || body.trim_start().starts_with("<html") {
+                return Err("Server returned HTML page instead of JSON. This usually means authentication is required or the endpoint is incorrect.".to_string());
+            }
+            
             // Fallback: try to parse as plain text (old format)
             let lines: Vec<&str> = body.lines().collect();
             let ssh_key_count = lines.iter()
                 .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
                 .count();
             
-            if ssh_key_count == 0 {
+            if ssh_key_count == 0 && !body.trim().is_empty() {
                 return Err("Invalid response format - not JSON array or SSH keys text".to_string());
             }
             
             Ok(format!("Connection successful! Found {} SSH keys in flow '{}'", ssh_key_count, flow))
         }
     }
+}
+
+async fn perform_manual_sync(settings: KhmSettings) -> Result<String, String> {
+    use crate::Args;
+    
+    if settings.host.is_empty() || settings.flow.is_empty() {
+        return Err("Host and flow must be configured".to_string());
+    }
+    
+    if settings.known_hosts.is_empty() {
+        return Err("Known hosts file path must be configured".to_string());
+    }
+    
+    info!("Starting manual sync with host: {}, flow: {}", settings.host, settings.flow);
+    
+    // Convert KhmSettings to Args for client module
+    let args = Args {
+        server: false,
+        gui: false,
+        settings_ui: false,
+        in_place: settings.in_place,
+        flows: vec!["default".to_string()], // Not used in client mode
+        ip: "127.0.0.1".to_string(), // Not used in client mode
+        port: 8080, // Not used in client mode
+        db_host: "127.0.0.1".to_string(), // Not used in client mode
+        db_name: "khm".to_string(), // Not used in client mode
+        db_user: None, // Not used in client mode
+        db_password: None, // Not used in client mode
+        host: Some(settings.host.clone()),
+        flow: Some(settings.flow.clone()),
+        known_hosts: expand_path(&settings.known_hosts),
+        basic_auth: settings.basic_auth.clone(),
+    };
+    
+    // Get keys count before sync
+    let keys_before = crate::client::read_known_hosts(&args.known_hosts)
+        .unwrap_or_else(|_| Vec::new())
+        .len();
+    
+    // Perform sync
+    crate::client::run_client(args.clone()).await
+        .map_err(|e| format!("Sync failed: {}", e))?;
+    
+    // Get keys count after sync
+    let keys_after = if args.in_place {
+        crate::client::read_known_hosts(&args.known_hosts)
+            .unwrap_or_else(|_| Vec::new())
+            .len()
+    } else {
+        keys_before
+    };
+    
+    info!("Manual sync completed: {} keys before, {} keys after", keys_before, keys_after);
+    
+    let result_message = if args.in_place {
+        format!("Sync completed successfully! Known hosts file updated with {} keys (was {})", keys_after, keys_before)
+    } else {
+        format!("Sync completed successfully! Retrieved {} keys from server", keys_after)
+    };
+    
+    info!("Returning sync result message: '{}'", result_message);
+    Ok(result_message)
 }
