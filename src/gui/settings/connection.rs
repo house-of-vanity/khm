@@ -102,7 +102,7 @@ impl ConnectionTab {
     }
     
     /// Check for test/sync results
-    pub fn check_results(&mut self, ctx: &egui::Context, settings: &KhmSettings) {
+    pub fn check_results(&mut self, ctx: &egui::Context, settings: &KhmSettings, operation_log: &mut Vec<String>) {
         // Check for test connection result
         if let Some(receiver) = &self.test_result_receiver {
             if let Ok(result) = receiver.try_recv() {
@@ -121,10 +121,16 @@ impl ConnectionTab {
                             flow: settings.flow.clone()
                         };
                         info!("Connection test successful: {}", message);
+                        
+                        // Add to UI log
+                        super::ui::add_log_entry(operation_log, format!("✅ Connection test successful: {}", message));
                     }
                     Err(error) => {
-                        self.connection_status = ConnectionStatus::Error(error);
+                        self.connection_status = ConnectionStatus::Error(error.clone());
                         error!("Connection test failed");
+                        
+                        // Add to UI log
+                        super::ui::add_log_entry(operation_log, format!("❌ Connection test failed: {}", error));
                     }
                 }
                 self.test_result_receiver = None;
@@ -142,10 +148,16 @@ impl ConnectionTab {
                         let keys_count = parse_keys_count(&message);
                         self.sync_status = SyncStatus::Success { keys_count };
                         info!("Sync successful: {}", message);
+                        
+                        // Add to UI log
+                        super::ui::add_log_entry(operation_log, format!("✅ Sync completed: {}", message));
                     }
                     Err(error) => {
-                        self.sync_status = SyncStatus::Error(error);
+                        self.sync_status = SyncStatus::Error(error.clone());
                         error!("Sync failed");
+                        
+                        // Add to UI log
+                        super::ui::add_log_entry(operation_log, format!("❌ Sync failed: {}", error));
                     }
                 }
                 self.sync_result_receiver = None;

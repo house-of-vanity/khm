@@ -3,6 +3,12 @@ name = "khm"
 version = "0.6.3"
 edition = "2021"
 authors = ["AB <ab@hexor.cy>"]
+description = "KHM - Known Hosts Manager for SSH key management and synchronization"
+homepage = "https://github.com/house-of-vanity/khm"
+repository = "https://github.com/house-of-vanity/khm"
+license = "WTFPL"
+keywords = ["ssh", "known-hosts", "security", "system-admin", "automation"]
+categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
 actix-web = "4"
