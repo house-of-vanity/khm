@@ -1,5 +1,8 @@
 use log::{error, info};
+
+#[cfg(feature = "gui")]
 use notify::RecursiveMode;
+#[cfg(feature = "gui")]
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -24,6 +27,7 @@ pub struct TrayApplication {
     menu_ids: Option<TrayMenuIds>,
     settings: Arc<Mutex<KhmSettings>>,
     sync_status: Arc<Mutex<SyncStatus>>,
+    #[cfg(feature = "gui")]
     _debouncer: Option<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>>,
     proxy: EventLoopProxy<crate::gui::UserEvent>,
     auto_sync_handle: Option<std::thread::JoinHandle<()>>,
@@ -36,12 +40,14 @@ impl TrayApplication {
             menu_ids: None,
             settings: Arc::new(Mutex::new(load_settings())),
             sync_status: Arc::new(Mutex::new(SyncStatus::default())),
+            #[cfg(feature = "gui")]
             _debouncer: None,
             proxy,
             auto_sync_handle: None,
         }
     }
     
+    #[cfg(feature = "gui")]
     fn setup_file_watcher(&mut self) {
         let config_path = get_config_path();
         let (tx, rx) = std::sync::mpsc::channel::<DebounceEventResult>();

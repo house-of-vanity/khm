@@ -154,9 +154,20 @@ async fn main() -> std::io::Result<()> {
 
     // Settings UI mode - just show settings window and exit
     if args.settings_ui {
-        info!("Running settings UI window");
-        gui::run_settings_window();
-        return Ok(());
+        #[cfg(feature = "gui")]
+        {
+            info!("Running settings UI window");
+            gui::run_settings_window();
+            return Ok(());
+        }
+        #[cfg(not(feature = "gui"))]
+        {
+            error!("GUI features not compiled. Install system dependencies and rebuild with --features gui");
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "GUI features not compiled"
+            ));
+        }
     }
 
     // GUI mode has priority
