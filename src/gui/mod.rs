@@ -27,6 +27,9 @@ pub fn run_settings_window() {
 async fn perform_sync(settings: &KhmSettings) -> std::io::Result<()> {
     use crate::Args;
     
+    info!("Starting sync with settings: host={}, flow={}, known_hosts={}, in_place={}", 
+          settings.host, settings.flow, settings.known_hosts, settings.in_place);
+    
     // Convert KhmSettings to Args for client module
     let args = Args {
         server: false,
@@ -45,6 +48,8 @@ async fn perform_sync(settings: &KhmSettings) -> std::io::Result<()> {
         known_hosts: settings::expand_path(&settings.known_hosts),
         basic_auth: settings.basic_auth.clone(),
     };
+    
+    info!("Expanded known_hosts path: {}", args.known_hosts);
     
     crate::client::run_client(args).await
 }
@@ -271,13 +276,25 @@ impl ApplicationHandler<UserEvent> for Application {
                     } else if event.id == *sync_id {
                         info!("Starting sync operation");
                         let settings = self.settings.lock().unwrap().clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = perform_sync(&settings).await {
-                                error!("Sync failed: {}", e);
-                            } else {
-                                info!("Sync completed successfully");
-                            }
-                        });
+                        
+                        // Check if settings are valid
+                        if settings.host.is_empty() || settings.flow.is_empty() {
+                            error!("Cannot sync: host or flow not configured");
+                        } else {
+                            info!("Syncing with host: {}, flow: {}", settings.host, settings.flow);
+                            
+                            // Run sync in separate thread with its own tokio runtime
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                rt.block_on(async {
+                                    if let Err(e) = perform_sync(&settings).await {
+                                        error!("Sync failed: {}", e);
+                                    } else {
+                                        info!("Sync completed successfully");
+                                    }
+                                });
+                            });
+                        }
                     }
                 }
             }
