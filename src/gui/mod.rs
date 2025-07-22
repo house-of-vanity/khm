@@ -1,4 +1,3 @@
-use eframe::egui;
 use log::{debug, error, info};
 use notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult};

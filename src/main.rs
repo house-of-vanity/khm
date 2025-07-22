@@ -132,7 +132,22 @@ struct Args {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env_logger::init();
+    // Configure logging to show only khm logs, filtering out noisy library logs
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Warn) // Default level for all modules
+        .filter_module("khm", log::LevelFilter::Debug) // Our app logs
+        .filter_module("actix_web", log::LevelFilter::Info) // Server logs
+        .filter_module("reqwest", log::LevelFilter::Warn) // HTTP client
+        .filter_module("winit", log::LevelFilter::Error) // Window management
+        .filter_module("egui", log::LevelFilter::Error) // GUI framework
+        .filter_module("eframe", log::LevelFilter::Error) // GUI framework
+        .filter_module("tray_icon", log::LevelFilter::Error) // Tray icon
+        .filter_module("wgpu", log::LevelFilter::Error) // Graphics
+        .filter_module("naga", log::LevelFilter::Error) // Graphics
+        .filter_module("glow", log::LevelFilter::Error) // Graphics
+        .filter_module("tracing", log::LevelFilter::Error) // Tracing spans
+        .init();
+    
     info!("Starting SSH Key Manager");
 
     let args = Args::parse();
