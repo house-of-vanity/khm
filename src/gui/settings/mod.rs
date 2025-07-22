@@ -211,6 +211,7 @@ struct KhmSettingsWindow {
     is_syncing: bool,
     sync_result_receiver: Option<mpsc::Receiver<Result<String, String>>>,
     sync_status: SyncStatus,
+    operation_log: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -250,10 +251,12 @@ impl eframe::App for KhmSettingsWindow {
                         
                         let flow = self.settings.flow.clone();
                         self.connection_status = ConnectionStatus::Connected { keys_count, flow };
+                        self.add_log_entry(format!("✅ Connection test successful: Found {} keys", keys_count));
                         info!("Connection test successful: {}", message);
                     }
                     Err(error) => {
                         self.connection_status = ConnectionStatus::Error(error.clone());
+                        self.add_log_entry(format!("❌ Connection test failed: {}", error));
                         error!("Connection test failed: {}", error);
                     }
                 }
@@ -325,10 +328,12 @@ impl eframe::App for KhmSettingsWindow {
                         
                         info!("Parsed keys count: {}", keys_count);
                         self.sync_status = SyncStatus::Success { keys_count };
+                        self.add_log_entry(format!("✅ Sync completed successfully: {} keys", keys_count));
                         info!("Sync successful: {}", message);
                     }
                     Err(error) => {
                         self.sync_status = SyncStatus::Error(error.clone());
+                        self.add_log_entry(format!("❌ Sync failed: {}", error));
                         error!("Sync failed: {}", error);
                     }
                 }
@@ -400,6 +405,29 @@ impl eframe::App for KhmSettingsWindow {
 }
 
 impl KhmSettingsWindow {
+    fn add_log_entry(&mut self, message: String) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap();
+        let secs = now.as_secs();
+        let millis = now.subsec_millis();
+        
+        // Format as HH:MM:SS.mmm
+        let hours = (secs / 3600) % 24;
+        let minutes = (secs / 60) % 60;
+        let seconds = secs % 60;
+        let timestamp = format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis);
+        
+        let log_entry = format!("{} {}", timestamp, message);
+        
+        self.operation_log.push(log_entry);
+        
+        // Keep only last 20 entries to prevent memory growth
+        if self.operation_log.len() > 20 {
+            self.operation_log.remove(0);
+        }
+    }
+    
     fn render_connection_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let available_height = ui.available_height();
         let button_area_height = 120.0; // Reserve space for buttons and status
@@ -533,27 +561,15 @@ impl KhmSettingsWindow {
                         
                         ui.add_space(10.0);
                         
-                        // Advanced settings (collapsible)
-                        ui.collapsing("🔧 Settings Info", |ui| {
-                            ui.indent("advanced", |ui| {
-                                ui.label("Configuration details:");
-                                ui.add_space(5.0);
-                                
-                                ui.horizontal(|ui| {
-                                    ui.label("Config file:");
-                                    let config_path = get_config_path();
-                                    ui.label(egui::RichText::new(config_path.display().to_string())
-                                        .font(egui::FontId::monospace(12.0))
-                                        .color(egui::Color32::LIGHT_GRAY));
-                                });
-                                
-                                ui.add_space(8.0);
-                                ui.label("Current configuration:");
-                                
+                        // Configuration file location
+                        ui.group(|ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.label("🗁 Config file:");
+                                let config_path = get_config_path();
                                 ui.add_sized(
-                                    [ui.available_width(), 120.0],
-                                    egui::TextEdit::multiline(&mut self.config_content.clone())
-                                        .font(egui::FontId::monospace(11.0))
+                                    [ui.available_width(), 20.0],
+                                    egui::TextEdit::singleline(&mut config_path.display().to_string())
                                         .interactive(false)
                                 );
                             });
@@ -567,37 +583,20 @@ impl KhmSettingsWindow {
             [ui.available_width(), button_area_height].into(),
             egui::Layout::bottom_up(egui::Align::Min),
             |ui| {
-                // Status information block
+                // Operation log area
                 ui.group(|ui| {
                     ui.set_min_width(ui.available_width());
                     ui.vertical(|ui| {
-                        // Show sync status
-                        match &self.sync_status {
-                            SyncStatus::Success { keys_count } => {
-                                ui.label(egui::RichText::new(format!("✅ Last sync successful: {} keys", keys_count))
-                                    .color(egui::Color32::GREEN));
-                            }
-                            SyncStatus::Error(err) => {
-                                ui.label(egui::RichText::new(format!("❌ Sync failed: {}", err))
-                                    .color(egui::Color32::RED));
-                            }
-                            SyncStatus::Unknown => {}
-                        }
+                        ui.label(egui::RichText::new("📄 Operation Log").size(14.0).strong());
+                        ui.add_space(5.0);
                         
-                        // Show connection status
-                        if !self.is_testing_connection {
-                            match &self.connection_status {
-                                ConnectionStatus::Connected { keys_count, flow } => {
-                                    ui.label(egui::RichText::new(format!("✅ Connected to '{}': {} keys available", flow, keys_count))
-                                        .color(egui::Color32::LIGHT_GREEN));
-                                }
-                                ConnectionStatus::Error(err) => {
-                                    ui.label(egui::RichText::new(format!("❌ Connection failed: {}", err))
-                                        .color(egui::Color32::RED));
-                                }
-                                ConnectionStatus::Unknown => {}
-                            }
-                        }
+                        let log_text = self.operation_log.join("\n");
+                        ui.add_sized(
+                            [ui.available_width(), 60.0],
+                            egui::TextEdit::multiline(&mut log_text.clone())
+                                .font(egui::FontId::monospace(10.0))
+                                .interactive(false)
+                        );
                     });
                 });
                 
@@ -677,6 +676,7 @@ impl KhmSettingsWindow {
         
         self.is_testing_connection = true;
         self.connection_status = ConnectionStatus::Unknown;
+        self.add_log_entry("🔍 Starting connection test...".to_string());
         
         let (tx, rx) = mpsc::channel();
         self.test_result_receiver = Some(rx);
@@ -704,6 +704,7 @@ impl KhmSettingsWindow {
         
         self.is_syncing = true;
         self.sync_status = SyncStatus::Unknown;
+        self.add_log_entry("🔄 Starting manual sync...".to_string());
         
         let (tx, rx) = mpsc::channel();
         self.sync_result_receiver = Some(rx);
@@ -1439,6 +1440,7 @@ pub fn run_settings_window() {
             is_syncing: false,
             sync_result_receiver: None,
             sync_status: SyncStatus::Unknown,
+            operation_log: Vec::new(),
         }))),
     );
 }
