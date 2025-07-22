@@ -282,8 +282,8 @@ impl eframe::App for KhmSettingsWindow {
                 
                 // Tab selector
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.current_tab, SettingsTab::Connection, "⚙️ Connection");
-                    ui.selectable_value(&mut self.current_tab, SettingsTab::Admin, "🛠️ Admin");
+                    ui.selectable_value(&mut self.current_tab, SettingsTab::Connection, "⚙ Connection");
+                    ui.selectable_value(&mut self.current_tab, SettingsTab::Admin, "🔧 Admin");
                 });
                 
                 ui.separator();
@@ -546,7 +546,7 @@ impl KhmSettingsWindow {
     fn render_admin_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         // Admin tab header
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("🛠️ Admin Panel").size(18.0).strong());
+            ui.label(egui::RichText::new("🔧 Admin Panel").size(18.0).strong());
             
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("🔄 Refresh").clicked() {
@@ -566,7 +566,7 @@ impl KhmSettingsWindow {
         // Check if connection is configured
         if self.settings.host.is_empty() || self.settings.flow.is_empty() {
             ui.vertical_centered(|ui| {
-                ui.label(egui::RichText::new("⚠️ Please configure connection settings first")
+                ui.label(egui::RichText::new("⚠ Please configure connection settings first")
                     .size(16.0)
                     .color(egui::Color32::YELLOW));
                 ui.add_space(10.0);
@@ -591,134 +591,155 @@ impl KhmSettingsWindow {
             return;
         }
         
-        // Statistics cards
-        ui.horizontal(|ui| {
-            let total_keys = self.admin_state.keys.len();
-            let active_keys = self.admin_state.keys.iter().filter(|k| !k.deprecated).count();
-            let deprecated_keys = total_keys - active_keys;
-            let unique_servers = self.admin_state.keys.iter().map(|k| &k.server).collect::<std::collections::HashSet<_>>().len();
-            
-            // Total keys card
-            ui.group(|ui| {
-                ui.set_min_width(80.0);
-                ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new("📊").size(20.0));
-                    ui.label(egui::RichText::new(total_keys.to_string()).size(24.0).strong());
-                    ui.label(egui::RichText::new("Total Keys").size(11.0).color(egui::Color32::GRAY));
-                });
-            });
-            
-            // Active keys card
-            ui.group(|ui| {
-                ui.set_min_width(80.0);
-                ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new("✅").size(20.0));
-                    ui.label(egui::RichText::new(active_keys.to_string()).size(24.0).strong().color(egui::Color32::LIGHT_GREEN));
-                    ui.label(egui::RichText::new("Active").size(11.0).color(egui::Color32::GRAY));
-                });
-            });
-            
-            // Deprecated keys card
-            ui.group(|ui| {
-                ui.set_min_width(80.0);
-                ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new("⚠️").size(20.0));
-                    ui.label(egui::RichText::new(deprecated_keys.to_string()).size(24.0).strong().color(egui::Color32::LIGHT_RED));
-                    ui.label(egui::RichText::new("Deprecated").size(11.0).color(egui::Color32::GRAY));
-                });
-            });
-            
-            // Servers card
-            ui.group(|ui| {
-                ui.set_min_width(80.0);
-                ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new("🖥️").size(20.0));
-                    ui.label(egui::RichText::new(unique_servers.to_string()).size(24.0).strong().color(egui::Color32::LIGHT_BLUE));
-                    ui.label(egui::RichText::new("Servers").size(11.0).color(egui::Color32::GRAY));
-                });
+        // Statistics cards - адаптивные как в Connection
+        ui.group(|ui| {
+            ui.set_min_width(ui.available_width());
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("📊 Statistics").size(16.0).strong());
+                ui.add_space(8.0);
+                
+                let total_keys = self.admin_state.keys.len();
+                let active_keys = self.admin_state.keys.iter().filter(|k| !k.deprecated).count();
+                let deprecated_keys = total_keys - active_keys;
+                let unique_servers = self.admin_state.keys.iter().map(|k| &k.server).collect::<std::collections::HashSet<_>>().len();
+                
+                egui::Grid::new("stats_grid")
+                    .num_columns(4)
+                    .min_col_width(80.0)
+                    .spacing([15.0, 8.0])
+                    .show(ui, |ui| {
+                        // Total keys
+                        ui.vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("📊").size(20.0));
+                            ui.label(egui::RichText::new(total_keys.to_string()).size(24.0).strong());
+                            ui.label(egui::RichText::new("Total Keys").size(11.0).color(egui::Color32::GRAY));
+                        });
+                        
+                        // Active keys
+                        ui.vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("✓").size(20.0));
+                            ui.label(egui::RichText::new(active_keys.to_string()).size(24.0).strong().color(egui::Color32::LIGHT_GREEN));
+                            ui.label(egui::RichText::new("Active").size(11.0).color(egui::Color32::GRAY));
+                        });
+                        
+                        // Deprecated keys
+                        ui.vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("⚠").size(20.0));
+                            ui.label(egui::RichText::new(deprecated_keys.to_string()).size(24.0).strong().color(egui::Color32::LIGHT_RED));
+                            ui.label(egui::RichText::new("Deprecated").size(11.0).color(egui::Color32::GRAY));
+                        });
+                        
+                        // Servers
+                        ui.vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("🖥").size(20.0));
+                            ui.label(egui::RichText::new(unique_servers.to_string()).size(24.0).strong().color(egui::Color32::LIGHT_BLUE));
+                            ui.label(egui::RichText::new("Servers").size(11.0).color(egui::Color32::GRAY));
+                        });
+                        
+                        ui.end_row();
+                    });
             });
         });
         
         ui.add_space(10.0);
         
-        // Enhanced search and filters
+        // Enhanced search and filters - более компактные
         ui.group(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("🔍").size(16.0));
-                let search_response = ui.add_sized(
-                    [200.0, 24.0],
-                    egui::TextEdit::singleline(&mut self.admin_state.search_term)
-                        .hint_text("Search servers or keys...")
-                );
-                
-                if self.admin_state.search_term.is_empty() {
-                    ui.label(egui::RichText::new("Type to search").color(egui::Color32::GRAY));
-                } else {
-                    ui.label(format!("{} results", self.admin_state.filtered_keys.len()));
-                    if ui.small_button("✕").clicked() {
-                        self.admin_state.search_term.clear();
+            ui.vertical(|ui| {
+                // Первая строка - поиск
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("🔍").size(14.0));
+                    let search_response = ui.add_sized(
+                        [ui.available_width() * 0.6, 20.0],
+                        egui::TextEdit::singleline(&mut self.admin_state.search_term)
+                            .hint_text("Search servers or keys...")
+                    );
+                    
+                    if self.admin_state.search_term.is_empty() {
+                        ui.label(egui::RichText::new("Type to search").size(11.0).color(egui::Color32::GRAY));
+                    } else {
+                        ui.label(egui::RichText::new(format!("{} results", self.admin_state.filtered_keys.len())).size(11.0));
+                        if ui.add(egui::Button::new(egui::RichText::new("X").color(egui::Color32::WHITE))
+                            .fill(egui::Color32::from_rgb(170, 170, 170))
+                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(89, 89, 89)))
+                            .rounding(egui::Rounding::same(3.0))
+                            .min_size(egui::vec2(18.0, 18.0))
+                        ).on_hover_text("Clear search").clicked() {
+                            self.admin_state.search_term.clear();
+                            self.filter_admin_keys();
+                        }
+                    }
+                    
+                    // Handle search text changes
+                    if search_response.changed() {
                         self.filter_admin_keys();
                     }
-                }
+                });
                 
-                ui.separator();
+                ui.add_space(5.0);
                 
-                // Filter toggle with better styling
-                let show_deprecated = self.admin_state.show_deprecated_only;
+                // Вторая строка - фильтры
                 ui.horizontal(|ui| {
                     ui.label("Filter:");
-                    if ui.selectable_label(!show_deprecated, "✅ Active").clicked() {
+                    let show_deprecated = self.admin_state.show_deprecated_only;
+                    if ui.selectable_label(!show_deprecated, "✓ Active").clicked() {
                         self.admin_state.show_deprecated_only = false;
                         self.filter_admin_keys();
                     }
-                    if ui.selectable_label(show_deprecated, "⚠️ Deprecated").clicked() {
+                    if ui.selectable_label(show_deprecated, "⚠ Deprecated").clicked() {
                         self.admin_state.show_deprecated_only = true;
                         self.filter_admin_keys();
                     }
                 });
-                
-                // Handle search text changes
-                if search_response.changed() {
-                    self.filter_admin_keys();
-                }
             });
         });
         
         ui.add_space(10.0);
         
-        // Enhanced bulk actions
+        // Enhanced bulk actions - лучшие цвета
         let selected_count = self.admin_state.selected_servers.values().filter(|&&v| v).count();
         if selected_count > 0 {
             ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("📋").size(16.0));
-                    ui.label(egui::RichText::new(format!("Selected {} servers", selected_count))
-                        .size(14.0)
-                        .strong()
-                        .color(egui::Color32::LIGHT_BLUE));
+                ui.set_min_width(ui.available_width());
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("📋").size(14.0));
+                        ui.label(egui::RichText::new(format!("Selected {} servers", selected_count))
+                            .size(14.0)
+                            .strong()
+                            .color(egui::Color32::LIGHT_BLUE));
+                    });
                     
-                    ui.separator();
+                    ui.add_space(5.0);
                     
-                    if ui.add(egui::Button::new("⚠ Deprecate Selected")
-                        .fill(egui::Color32::from_rgb(230, 126, 34))
-                        .min_size(egui::vec2(130.0, 30.0))
-                    ).clicked() {
-                        self.deprecate_selected_servers(ctx);
-                    }
-                    
-                    if ui.add(egui::Button::new("✓ Restore Selected")
-                        .fill(egui::Color32::from_rgb(46, 204, 113))
-                        .min_size(egui::vec2(120.0, 30.0))
-                    ).clicked() {
-                        self.restore_selected_servers(ctx);
-                    }
-                    
-                    if ui.add(egui::Button::new("✕ Clear Selection")
-                        .fill(egui::Color32::from_rgb(149, 165, 166))
-                        .min_size(egui::vec2(110.0, 30.0))
-                    ).clicked() {
-                        self.admin_state.selected_servers.clear();
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.add(egui::Button::new(egui::RichText::new("⚠ Deprecate Selected").color(egui::Color32::BLACK))
+                            .fill(egui::Color32::from_rgb(255, 200, 0))
+                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(102, 94, 72)))
+                            .rounding(egui::Rounding::same(6.0))
+                            .min_size(egui::vec2(130.0, 28.0))
+                        ).clicked() {
+                            self.deprecate_selected_servers(ctx);
+                        }
+                        
+                        if ui.add(egui::Button::new(egui::RichText::new("✓ Restore Selected").color(egui::Color32::WHITE))
+                            .fill(egui::Color32::from_rgb(101, 199, 40))
+                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(94, 105, 25)))
+                            .rounding(egui::Rounding::same(6.0))
+                            .min_size(egui::vec2(120.0, 28.0))
+                        ).clicked() {
+                            self.restore_selected_servers(ctx);
+                        }
+                        
+                        if ui.add(egui::Button::new(egui::RichText::new("X Clear Selection").color(egui::Color32::WHITE))
+                            .fill(egui::Color32::from_rgb(170, 170, 170))
+                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(89, 89, 89)))
+                            .rounding(egui::Rounding::same(6.0))
+                            .min_size(egui::vec2(110.0, 28.0))
+                        ).clicked() {
+                            self.admin_state.selected_servers.clear();
+                        }
+                    });
                 });
             });
             ui.add_space(8.0);
@@ -805,7 +826,7 @@ impl KhmSettingsWindow {
                         .size(14.0)
                         .color(egui::Color32::DARK_GRAY));
                 } else {
-                    ui.label(egui::RichText::new("🚫").size(48.0).color(egui::Color32::GRAY));
+                    ui.label(egui::RichText::new("X").size(48.0).color(egui::Color32::GRAY));
                     ui.label(egui::RichText::new("No keys match current filters")
                         .size(18.0)
                         .color(egui::Color32::GRAY));
@@ -861,61 +882,65 @@ impl KhmSettingsWindow {
                         .strong()
                         .color(egui::Color32::WHITE));
                     
-                    // Keys count badge
+                    // Keys count badge - более компактный
                     let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2(60.0, 20.0),
+                        egui::vec2(50.0, 18.0),
                         egui::Sense::hover()
                     );
                     ui.painter().rect_filled(
                         rect,
-                        egui::Rounding::same(10.0),
+                        egui::Rounding::same(8.0),
                         egui::Color32::from_rgb(52, 152, 219)
                     );
                     ui.painter().text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
                         &format!("{} keys", server_keys.len()),
-                        egui::FontId::proportional(11.0),
+                        egui::FontId::proportional(10.0),
                         egui::Color32::WHITE,
                     );
                     
-                    ui.add_space(8.0);
+                    ui.add_space(5.0);
                     
-                    // Status indicators
+                    // Status indicators - меньшие
                     if deprecated_count > 0 {
                         let (rect, _) = ui.allocate_exact_size(
-                            egui::vec2(80.0, 20.0),
+                            egui::vec2(65.0, 18.0),
                             egui::Sense::hover()
                         );
                         ui.painter().rect_filled(
                             rect,
-                            egui::Rounding::same(10.0),
+                            egui::Rounding::same(8.0),
                             egui::Color32::from_rgb(231, 76, 60)
                         );
                         ui.painter().text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
-                            &format!("{} deprecated", deprecated_count),
-                            egui::FontId::proportional(10.0),
+                            &format!("{} depr", deprecated_count),
+                            egui::FontId::proportional(9.0),
                             egui::Color32::WHITE,
                         );
                     }
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Stylized action buttons
+                        // Stylized action buttons - improved colors
                         if deprecated_count > 0 {
-                            if ui.add(egui::Button::new("✓ Restore All")
-                                .fill(egui::Color32::from_rgb(46, 204, 113))
-                                .min_size(egui::vec2(90.0, 28.0))
+                            if ui.add(egui::Button::new(egui::RichText::new("✓ Restore").color(egui::Color32::WHITE))
+                                .fill(egui::Color32::from_rgb(101, 199, 40))
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(94, 105, 25)))
+                                .rounding(egui::Rounding::same(4.0))
+                                .min_size(egui::vec2(70.0, 24.0))
                             ).clicked() {
                                 self.restore_server_keys(&server_name, ctx);
                             }
                         }
                         
                         if active_count > 0 {
-                            if ui.add(egui::Button::new("⚠ Deprecate All")
-                                .fill(egui::Color32::from_rgb(230, 126, 34))
-                                .min_size(egui::vec2(110.0, 28.0))
+                            if ui.add(egui::Button::new(egui::RichText::new("⚠ Deprecate").color(egui::Color32::BLACK))
+                                .fill(egui::Color32::from_rgb(255, 200, 0))
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(102, 94, 72)))
+                                .rounding(egui::Rounding::same(4.0))
+                                .min_size(egui::vec2(85.0, 24.0))
                             ).clicked() {
                                 self.deprecate_server_keys(&server_name, ctx);
                             }
@@ -940,75 +965,83 @@ impl KhmSettingsWindow {
                                     _ => (egui::Color32::GRAY, egui::Color32::WHITE),
                                 };
                                 
-                                // Custom badge rendering
+                                // Custom badge rendering - меньшие
                                 let (rect, _) = ui.allocate_exact_size(
-                                    egui::vec2(50.0, 20.0),
+                                    egui::vec2(40.0, 16.0),
                                     egui::Sense::hover()
                                 );
                                 ui.painter().rect_filled(
                                     rect,
-                                    egui::Rounding::same(4.0),
+                                    egui::Rounding::same(3.0),
                                     badge_color
                                 );
                                 ui.painter().text(
                                     rect.center(),
                                     egui::Align2::CENTER_CENTER,
                                     &key_type,
-                                    egui::FontId::proportional(11.0),
+                                    egui::FontId::proportional(9.0),
                                     text_color,
                                 );
                                 
-                                ui.add_space(8.0);
+                                ui.add_space(5.0);
                                 
-                                // Status badge with icons
+                                // Status badge with icons - меньшие
                                 if key.deprecated {
-                                    ui.label(egui::RichText::new("⚠ DEPRECATED")
-                                        .size(12.0)
+                                    ui.label(egui::RichText::new("⚠ DEPR")
+                                        .size(10.0)
                                         .color(egui::Color32::from_rgb(231, 76, 60))
                                         .strong());
                                 } else {
                                     ui.label(egui::RichText::new("✓ ACTIVE")
-                                        .size(12.0)
+                                        .size(10.0)
                                         .color(egui::Color32::from_rgb(46, 204, 113))
                                         .strong());
                                 }
                                 
-                                ui.add_space(8.0);
+                                ui.add_space(5.0);
                                 
-                                // Key preview with monospace font
+                                // Key preview with monospace font - короче
                                 ui.label(egui::RichText::new(self.get_key_preview(&key.public_key))
-                                    .font(egui::FontId::monospace(12.0))
+                                    .font(egui::FontId::monospace(10.0))
                                     .color(egui::Color32::LIGHT_GRAY));
                                 
                                 let server_name_for_action = server_name.clone();
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    // Modern action buttons
+                                    // Modern action buttons - improved colors
                                     if key.deprecated {
-                                        if ui.add(egui::Button::new("✓ Restore")
-                                            .fill(egui::Color32::from_rgb(46, 204, 113))
-                                            .min_size(egui::vec2(70.0, 24.0))
-                                        ).clicked() {
+                                        if ui.add(egui::Button::new(egui::RichText::new("✓").color(egui::Color32::WHITE))
+                                            .fill(egui::Color32::from_rgb(101, 199, 40))
+                                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(94, 105, 25)))
+                                            .rounding(egui::Rounding::same(3.0))
+                                            .min_size(egui::vec2(22.0, 18.0))
+                                        ).on_hover_text("Restore key").clicked() {
                                             self.restore_key(&server_name_for_action, ctx);
                                         }
-                                        if ui.add(egui::Button::new("🗑 Delete")
-                                            .fill(egui::Color32::from_rgb(231, 76, 60))
-                                            .min_size(egui::vec2(70.0, 24.0))
-                                        ).clicked() {
+                                        if ui.add(egui::Button::new(egui::RichText::new("Del").color(egui::Color32::WHITE))
+                                            .fill(egui::Color32::from_rgb(246, 36, 71))
+                                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(129, 18, 17)))
+                                            .rounding(egui::Rounding::same(3.0))
+                                            .min_size(egui::vec2(26.0, 18.0))
+                                        ).on_hover_text("Delete key").clicked() {
                                             self.delete_key(&server_name_for_action, ctx);
                                         }
                                     } else {
-                                        if ui.add(egui::Button::new("⚠ Deprecate")
-                                            .fill(egui::Color32::from_rgb(230, 126, 34))
-                                            .min_size(egui::vec2(85.0, 24.0))
-                                        ).clicked() {
+                                        if ui.add(egui::Button::new(egui::RichText::new("⚠").color(egui::Color32::BLACK))
+                                            .fill(egui::Color32::from_rgb(255, 200, 0))
+                                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(102, 94, 72)))
+                                            .rounding(egui::Rounding::same(3.0))
+                                            .min_size(egui::vec2(22.0, 18.0))
+                                        ).on_hover_text("Deprecate key").clicked() {
                                             self.deprecate_key(&server_name_for_action, ctx);
                                         }
                                     }
                                     
-                                    if ui.add(egui::Button::new("📋 Copy")
-                                        .fill(egui::Color32::from_rgb(52, 152, 219))
-                                        .min_size(egui::vec2(60.0, 24.0))
-                                    ).clicked() {
+                                    if ui.add(egui::Button::new(egui::RichText::new("Copy").color(egui::Color32::WHITE))
+                                        .fill(egui::Color32::from_rgb(0, 111, 230))
+                                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(35, 84, 97)))
+                                        .rounding(egui::Rounding::same(3.0))
+                                        .min_size(egui::vec2(30.0, 18.0))
+                                    ).on_hover_text("Copy to clipboard").clicked() {
                                         ui.output_mut(|o| o.copied_text = key.public_key.clone());
                                     }
                                 });
@@ -1048,13 +1081,13 @@ impl KhmSettingsWindow {
         let parts: Vec<&str> = public_key.split_whitespace().collect();
         if parts.len() >= 2 {
             let key_part = parts[1];
-            if key_part.len() > 20 {
-                format!("{}...", &key_part[..20])
+            if key_part.len() > 12 {
+                format!("{}...", &key_part[..12])
             } else {
                 key_part.to_string()
             }
         } else {
-            format!("{}...", &public_key[..std::cmp::min(20, public_key.len())])
+            format!("{}...", &public_key[..std::cmp::min(12, public_key.len())])
         }
     }
     
@@ -1092,8 +1125,8 @@ pub fn run_settings_window() {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("KHM Settings")
-            .with_inner_size([520.0, 750.0])
-            .with_min_inner_size([480.0, 600.0])
+            .with_inner_size([600.0, 800.0])
+            .with_min_inner_size([500.0, 650.0])
             .with_resizable(true)
             .with_icon(create_window_icon()),
         ..Default::default()
