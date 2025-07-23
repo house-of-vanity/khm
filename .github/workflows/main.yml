@@ -82,6 +82,7 @@ jobs:
         uses: gmiam/rust-musl-action@master
         with:
           args: |
+            apt-get update && apt-get install -y pkg-config
             cargo build --target ${{ matrix.build_target }} --release --no-default-features --features server
           
       - name: Build MacOS
@@ -149,6 +150,7 @@ jobs:
           
       - name: Check if artifact exists
         id: check_artifact
+        shell: bash
         run: |
           if [ -f "${{ env.BINARY_NAME }}_${{ matrix.platform_name }}/${{ env.BINARY_NAME }}${{ matrix.platform_name == 'windows-amd64' && '.exe' || '' }}" ]; then
             echo "artifact_exists=true" >> $GITHUB_OUTPUT
@@ -157,7 +159,7 @@ jobs:
           fi
           
       - name: Upload Release Asset
-        if: steps.check_artifact.outputs.artifact_exists == 'true'
+        if: steps.check_artifact.outputs.artifact_exists == 'true' && needs.release.outputs.upload_url != ''
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
