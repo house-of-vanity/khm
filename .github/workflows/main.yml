@@ -1,9 +1,9 @@
 name: Rust static build and publish
 
-on:
-  push:
-    tags:
-      - 'v*.*.*'
+on: [push]
+#  push:
+#    tags:
+#      - 'v*.*.*'
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,7 +16,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
             build_target: x86_64-unknown-linux-musl
