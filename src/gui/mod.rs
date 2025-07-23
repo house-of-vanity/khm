@@ -1,8 +1,8 @@
 use log::info;
 
 // Modules
-mod api;
 mod admin;
+mod api;
 mod common;
 
 #[cfg(feature = "gui")]
@@ -38,6 +38,6 @@ pub async fn run_gui() -> std::io::Result<()> {
 pub async fn run_gui() -> std::io::Result<()> {
     return Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
-        "GUI features not compiled. Install system dependencies and rebuild with --features gui"
+        "GUI features not compiled. Install system dependencies and rebuild with --features gui",
     ));
 }

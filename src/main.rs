@@ -1,8 +1,8 @@
 mod client;
 mod db;
+mod gui;
 mod server;
 mod web;
-mod gui;
 
 use clap::Parser;
 use env_logger;
@@ -147,7 +147,7 @@ async fn main() -> std::io::Result<()> {
         .filter_module("glow", log::LevelFilter::Error) // Graphics
         .filter_module("tracing", log::LevelFilter::Error) // Tracing spans
         .init();
-    
+
     info!("Starting SSH Key Manager");
 
     let args = Args::parse();
@@ -165,7 +165,7 @@ async fn main() -> std::io::Result<()> {
             error!("GUI features not compiled. Install system dependencies and rebuild with --features gui");
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
-                "GUI features not compiled"
+                "GUI features not compiled",
             ));
         }
     }
@@ -193,10 +193,7 @@ async fn main() -> std::io::Result<()> {
             "  Client mode: {} --host https://khm.example.com --flow work",
             env!("CARGO_PKG_NAME")
         );
-        eprintln!(
-            "  GUI mode: {} --gui",
-            env!("CARGO_PKG_NAME")
-        );
+        eprintln!("  GUI mode: {} --gui", env!("CARGO_PKG_NAME"));
         eprintln!(
             "  Settings window: {} --gui --settings-ui",
             env!("CARGO_PKG_NAME")

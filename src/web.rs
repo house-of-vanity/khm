@@ -1,14 +1,14 @@
 use actix_web::{web, HttpResponse, Result};
+use futures::future;
 use log::info;
 use rust_embed::RustEmbed;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
-use trust_dns_resolver::TokioAsyncResolver;
-use trust_dns_resolver::config::*;
-use serde::{Deserialize, Serialize};
-use futures::future;
 use tokio::sync::Semaphore;
 use tokio::time::{timeout, Duration};
+use trust_dns_resolver::config::*;
+use trust_dns_resolver::TokioAsyncResolver;
 
 use crate::db::ReconnectingDbClient;
 use crate::server::Flows;
@@ -41,10 +41,7 @@ async fn check_dns_resolution(hostname: String, semaphore: Arc<Semaphore>) -> Dn
         }
     };
 
-    let resolver = TokioAsyncResolver::tokio(
-        ResolverConfig::default(),
-        ResolverOpts::default(),
-    );
+    let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default());
 
     let lookup_result = timeout(Duration::from_secs(5), resolver.lookup_ip(&hostname)).await;
 
@@ -88,7 +85,10 @@ pub async fn scan_dns_resolution(
 ) -> Result<HttpResponse> {
     let flow_id_str = path.into_inner();
 
-    info!("API request to scan DNS resolution for flow '{}'"  , flow_id_str);
+    info!(
+        "API request to scan DNS resolution for flow '{}'",
+        flow_id_str
+    );
 
     if !allowed_flows.contains(&flow_id_str) {
         return Ok(HttpResponse::Forbidden().json(json!({
@@ -114,7 +114,10 @@ pub async fn scan_dns_resolution(
 
     drop(flows_guard);
 
-    info!("Scanning DNS resolution for {} unique hosts", hostnames.len());
+    info!(
+        "Scanning DNS resolution for {} unique hosts",
+        hostnames.len()
+    );
 
     // Limit concurrent DNS requests to prevent "too many open files" error
     let semaphore = Arc::new(Semaphore::new(20));
@@ -128,7 +131,11 @@ pub async fn scan_dns_resolution(
     let results = future::join_all(scan_futures).await;
 
     let unresolved_count = results.iter().filter(|r| !r.resolved).count();
-    info!("DNS scan complete: {} unresolved out of {} hosts", unresolved_count, results.len());
+    info!(
+        "DNS scan complete: {} unresolved out of {} hosts",
+        unresolved_count,
+        results.len()
+    );
 
     Ok(HttpResponse::Ok().json(json!({
         "results": results,
@@ -147,7 +154,11 @@ pub async fn bulk_deprecate_servers(
 ) -> Result<HttpResponse> {
     let flow_id_str = path.into_inner();
 
-    info!("API request to bulk deprecate {} servers in flow '{}'", request.servers.len(), flow_id_str);
+    info!(
+        "API request to bulk deprecate {} servers in flow '{}'",
+        request.servers.len(),
+        flow_id_str
+    );
 
     if !allowed_flows.contains(&flow_id_str) {
         return Ok(HttpResponse::Forbidden().json(json!({
@@ -161,7 +172,11 @@ pub async fn bulk_deprecate_servers(
         .await
     {
         Ok(count) => {
-            info!("Bulk deprecated {} key(s) for {} servers", count, request.servers.len());
+            info!(
+                "Bulk deprecated {} key(s) for {} servers",
+                count,
+                request.servers.len()
+            );
             count
         }
         Err(e) => {
@@ -203,7 +218,11 @@ pub async fn bulk_restore_servers(
 ) -> Result<HttpResponse> {
     let flow_id_str = path.into_inner();
 
-    info!("API request to bulk restore {} servers in flow '{}'", request.servers.len(), flow_id_str);
+    info!(
+        "API request to bulk restore {} servers in flow '{}'",
+        request.servers.len(),
+        flow_id_str
+    );
 
     if !allowed_flows.contains(&flow_id_str) {
         return Ok(HttpResponse::Forbidden().json(json!({
@@ -217,7 +236,11 @@ pub async fn bulk_restore_servers(
         .await
     {
         Ok(count) => {
-            info!("Bulk restored {} key(s) for {} servers", count, request.servers.len());
+            info!(
+                "Bulk restored {} key(s) for {} servers",
+                count,
+                request.servers.len()
+            );
             count
         }
         Err(e) => {

@@ -69,12 +69,12 @@ impl DbClient {
             .client
             .query(
                 "SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_schema = 'public' 
+                    SELECT FROM information_schema.tables
+                    WHERE table_schema = 'public'
                     AND table_name = 'keys'
                 ) AND EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_schema = 'public' 
+                    SELECT FROM information_schema.tables
+                    WHERE table_schema = 'public'
                     AND table_name = 'flows'
                 )",
                 &[],
@@ -144,9 +144,9 @@ impl DbClient {
                 .client
                 .query(
                     "SELECT EXISTS (
-                        SELECT FROM information_schema.columns 
-                        WHERE table_schema = 'public' 
-                        AND table_name = 'keys' 
+                        SELECT FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                        AND table_name = 'keys'
                         AND column_name = 'deprecated'
                     )",
                     &[],
@@ -448,9 +448,9 @@ impl DbClient {
         let result = self
             .client
             .execute(
-                "UPDATE public.keys 
-                 SET deprecated = TRUE, updated = NOW() 
-                 WHERE host = $1 
+                "UPDATE public.keys
+                 SET deprecated = TRUE, updated = NOW()
+                 WHERE host = $1
                  AND key_id IN (
                      SELECT key_id FROM public.flows WHERE name = $2
                  )",
@@ -480,9 +480,9 @@ impl DbClient {
         let result = self
             .client
             .execute(
-                "UPDATE public.keys 
-                 SET deprecated = TRUE, updated = NOW() 
-                 WHERE host = ANY($1) 
+                "UPDATE public.keys
+                 SET deprecated = TRUE, updated = NOW()
+                 WHERE host = ANY($1)
                  AND key_id IN (
                      SELECT key_id FROM public.flows WHERE name = $2
                  )",
@@ -493,7 +493,9 @@ impl DbClient {
 
         info!(
             "Bulk deprecated {} key(s) for {} servers in flow '{}'",
-            affected, server_names.len(), flow_name
+            affected,
+            server_names.len(),
+            flow_name
         );
 
         Ok(affected)
@@ -512,9 +514,9 @@ impl DbClient {
         let result = self
             .client
             .execute(
-                "UPDATE public.keys 
-                 SET deprecated = FALSE, updated = NOW() 
-                 WHERE host = ANY($1) 
+                "UPDATE public.keys
+                 SET deprecated = FALSE, updated = NOW()
+                 WHERE host = ANY($1)
                  AND deprecated = TRUE
                  AND key_id IN (
                      SELECT key_id FROM public.flows WHERE name = $2
@@ -526,7 +528,9 @@ impl DbClient {
 
         info!(
             "Bulk restored {} key(s) for {} servers in flow '{}'",
-            affected, server_names.len(), flow_name
+            affected,
+            server_names.len(),
+            flow_name
         );
 
         Ok(affected)
@@ -541,9 +545,9 @@ impl DbClient {
         let result = self
             .client
             .execute(
-                "UPDATE public.keys 
-                 SET deprecated = FALSE, updated = NOW() 
-                 WHERE host = $1 
+                "UPDATE public.keys
+                 SET deprecated = FALSE, updated = NOW()
+                 WHERE host = $1
                  AND deprecated = TRUE
                  AND key_id IN (
                      SELECT key_id FROM public.flows WHERE name = $2
@@ -570,8 +574,8 @@ impl DbClient {
         let result = self
             .client
             .query(
-                "SELECT k.key_id FROM public.keys k 
-                 INNER JOIN public.flows f ON k.key_id = f.key_id 
+                "SELECT k.key_id FROM public.keys k
+                 INNER JOIN public.flows f ON k.key_id = f.key_id
                  WHERE k.host = $1 AND f.name = $2",
                 &[&server_name, &flow_name],
             )
