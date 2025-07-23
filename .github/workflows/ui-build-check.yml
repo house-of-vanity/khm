@@ -13,6 +13,7 @@ jobs:
     name: Build Check
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         include:
@@ -59,7 +60,10 @@ jobs:
         uses: gmiam/rust-musl-action@master
         with:
           args: |
-            apk add --no-cache pkgconfig glib-dev gtk+3.0-dev
+            apk add --no-cache pkg-config glib-dev gcc g++ musl-dev gcompat libstdc++
+            export PKG_CONFIG_ALLOW_CROSS=1
+            export PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/share/pkgconfig
+            export PKG_CONFIG_SYSROOT_DIR=/
             cargo build --target ${{ matrix.build_target }}
           
       - name: Build MacOS
