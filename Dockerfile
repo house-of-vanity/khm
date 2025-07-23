@@ -2,9 +2,17 @@
 
 FROM ubuntu:22.04
 
-# Install basic runtime dependencies
+# Install runtime dependencies including GUI libraries
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    libssl3 \
+    libgtk-3-0 \
+    libglib2.0-0 \
+    libcairo2 \
+    libpango-1.0-0 \
+    libatk1.0-0 \
+    libgdk-pixbuf2.0-0 \
+    libxdo3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY khm /usr/local/bin/khm

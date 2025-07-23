@@ -120,21 +120,28 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release-assets/
-          find artifacts/ -type f -name "${{ env.BINARY_NAME }}*" -exec cp {} release-assets/ \;
-          cd release-assets/
-          # Rename files to include platform in filename
-          for file in *; do
-            if [[ -f "$file" ]]; then
-              # Extract platform from parent directory name in artifacts
-              platform=$(find ../artifacts/ -name "$file" -printf "%h\n" | sed 's|.*/||' | sed 's|khm_||')
-              if [[ "$file" == *".exe" ]]; then
-                mv "$file" "${{ env.BINARY_NAME }}_${platform}.exe"
-              else
-                mv "$file" "${{ env.BINARY_NAME }}_${platform}"
-              fi
+          # Copy files with proper naming from each artifact directory
+          for artifact_dir in artifacts/*/; do
+            if [[ -d "$artifact_dir" ]]; then
+              platform=$(basename "$artifact_dir" | sed 's|khm_||')
+              echo "Processing platform: $platform"
+              
+              # Find binary files in the artifact directory
+              find "$artifact_dir" -name "${{ env.BINARY_NAME }}*" -type f | while read -r file; do
+                filename=$(basename "$file")
+                if [[ "$filename" == *".exe" ]]; then
+                  cp "$file" "release-assets/${{ env.BINARY_NAME }}_${platform}.exe"
+                  echo "Copied: $file -> release-assets/${{ env.BINARY_NAME }}_${platform}.exe"
+                else
+                  cp "$file" "release-assets/${{ env.BINARY_NAME }}_${platform}"
+                  echo "Copied: $file -> release-assets/${{ env.BINARY_NAME }}_${platform}"
+                fi
+              done
             fi
           done
-          ls -la
+          
+          echo "Final release assets:"
+          ls -la release-assets/
       
       - name: Create Release
         uses: softprops/action-gh-release@v2
