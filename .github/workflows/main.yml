@@ -1,9 +1,9 @@
 name: Rust static build and publish
 
-on: [push]
-#  push:
-#    tags:
-#      - 'v*.*.*'
+on:
+  push:
+    tags:
+      - 'v*.*.*'
 
 env:
   CARGO_TERM_COLOR: always
