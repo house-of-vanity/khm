@@ -103,74 +103,48 @@ jobs:
           path: target/${{ matrix.build_target }}/release/${{ env.BINARY_NAME }}*
 
   release:
-    name: Create Release Page
+    name: Create Release and Upload Assets
     if: always()  # Always run even if some builds fail
     needs: build
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          path: artifacts/
+      
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets/
+          find artifacts/ -type f -name "${{ env.BINARY_NAME }}*" -exec cp {} release-assets/ \;
+          cd release-assets/
+          # Rename files to include platform in filename
+          for file in *; do
+            if [[ -f "$file" ]]; then
+              # Extract platform from parent directory name in artifacts
+              platform=$(find ../artifacts/ -name "$file" -printf "%h\n" | sed 's|.*/||' | sed 's|khm_||')
+              if [[ "$file" == *".exe" ]]; then
+                mv "$file" "${{ env.BINARY_NAME }}_${platform}.exe"
+              else
+                mv "$file" "${{ env.BINARY_NAME }}_${platform}"
+              fi
+            fi
+          done
+          ls -la
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          files: release-assets/*
           draft: false
           prerelease: false
-
-  upload:
-    name: Upload Release Assets
-    if: always()  # Always run even if some builds fail
-    needs: release
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # - os: ubuntu-latest
-          #   platform_name: linux-amd64-musl
-          - os: ubuntu-latest
-            platform_name: linux-amd64
-          - os: windows-latest
-            platform_name: windows-amd64
-          - os: macos-latest
-            platform_name: macos-arm64
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: actions/download-artifact@v4
-        name: Download ${{ matrix.platform_name }} artifact
-        with:
-          name: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}
-          path: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}
-        continue-on-error: true  # Continue if artifact doesn't exist
-          
-      - name: Check if artifact exists
-        id: check_artifact
-        shell: bash
-        run: |
-          if [ -f "${{ env.BINARY_NAME }}_${{ matrix.platform_name }}/${{ env.BINARY_NAME }}${{ matrix.platform_name == 'windows-amd64' && '.exe' || '' }}" ]; then
-            echo "artifact_exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "artifact_exists=false" >> $GITHUB_OUTPUT
-          fi
-          
-      - name: Upload Release Asset
-        if: steps.check_artifact.outputs.artifact_exists == 'true' && needs.release.outputs.upload_url != ''
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.release.outputs.upload_url }}
-          asset_path: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}/${{ env.BINARY_NAME }}${{ matrix.platform_name == 'windows-amd64' && '.exe' || '' }}
-          asset_name: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}${{ matrix.platform_name == 'windows-amd64' && '.exe' || '' }}
-          asset_content_type: application/octet-stream
+          generate_release_notes: true
+          fail_on_unmatched_files: false
 
   # build_docker:
   #   name: Build and Publish Docker Image
