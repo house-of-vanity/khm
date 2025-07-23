@@ -1,9 +1,15 @@
+#[cfg(feature = "gui")]
 use dirs::home_dir;
+#[cfg(feature = "gui")]
 use log::{debug, error, info};
+#[cfg(feature = "gui")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "gui")]
 use std::fs;
+#[cfg(feature = "gui")]
 use std::path::PathBuf;
 
+#[cfg(feature = "gui")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KhmSettings {
     pub host: String,
@@ -14,6 +20,7 @@ pub struct KhmSettings {
     pub auto_sync_interval_minutes: u32,
 }
 
+#[cfg(feature = "gui")]
 impl Default for KhmSettings {
     fn default() -> Self {
         Self {
@@ -28,6 +35,7 @@ impl Default for KhmSettings {
 }
 
 /// Get default known_hosts file path based on OS
+#[cfg(feature = "gui")]
 fn get_default_known_hosts_path() -> String {
     if let Some(home) = home_dir() {
         let ssh_dir = home.join(".ssh");
@@ -39,6 +47,7 @@ fn get_default_known_hosts_path() -> String {
 }
 
 /// Get configuration file path
+#[cfg(feature = "gui")]
 pub fn get_config_path() -> PathBuf {
     let mut path = home_dir().expect("Could not find home directory");
     path.push(".khm");
@@ -48,6 +57,7 @@ pub fn get_config_path() -> PathBuf {
 }
 
 /// Load settings from configuration file
+#[cfg(feature = "gui")]
 pub fn load_settings() -> KhmSettings {
     let path = get_config_path();
     match fs::read_to_string(&path) {
@@ -72,6 +82,7 @@ pub fn load_settings() -> KhmSettings {
 }
 
 /// Save settings to configuration file
+#[cfg(feature = "gui")]
 pub fn save_settings(settings: &KhmSettings) -> Result<(), std::io::Error> {
     let path = get_config_path();
     let json = serde_json::to_string_pretty(settings)?;
@@ -81,6 +92,7 @@ pub fn save_settings(settings: &KhmSettings) -> Result<(), std::io::Error> {
 }
 
 /// Expand path with ~ substitution
+#[cfg(feature = "gui")]
 pub fn expand_path(path: &str) -> String {
     if path.starts_with("~/") {
         if let Some(home) = home_dir() {
@@ -91,6 +103,7 @@ pub fn expand_path(path: &str) -> String {
 }
 
 /// Perform sync operation using KHM client logic
+#[cfg(feature = "gui")]
 pub async fn perform_sync(settings: &KhmSettings) -> Result<usize, std::io::Error> {
     use crate::Args;
 

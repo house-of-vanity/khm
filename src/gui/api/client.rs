@@ -12,6 +12,7 @@ pub struct SshKey {
 }
 
 /// Test connection to KHM server
+#[cfg(feature = "gui")]
 pub async fn test_connection(
     host: String,
     flow: String,
@@ -52,6 +53,7 @@ pub async fn test_connection(
 }
 
 /// Fetch all SSH keys including deprecated ones
+#[cfg(feature = "gui")]
 pub async fn fetch_keys(
     host: String,
     flow: String,
@@ -95,6 +97,7 @@ pub async fn fetch_keys(
 }
 
 /// Deprecate a key for a specific server
+#[cfg(feature = "gui")]
 pub async fn deprecate_key(
     host: String,
     flow: String,
@@ -133,6 +136,7 @@ pub async fn deprecate_key(
 }
 
 /// Restore a key for a specific server
+#[cfg(feature = "gui")]
 pub async fn restore_key(
     host: String,
     flow: String,
@@ -171,6 +175,7 @@ pub async fn restore_key(
 }
 
 /// Delete a key permanently for a specific server
+#[cfg(feature = "gui")]
 pub async fn delete_key(
     host: String,
     flow: String,
@@ -212,6 +217,7 @@ pub async fn delete_key(
 }
 
 /// Bulk deprecate multiple servers
+#[cfg(feature = "gui")]
 pub async fn bulk_deprecate_servers(
     host: String,
     flow: String,
@@ -244,6 +250,7 @@ pub async fn bulk_deprecate_servers(
 }
 
 /// Bulk restore multiple servers
+#[cfg(feature = "gui")]
 pub async fn bulk_restore_servers(
     host: String,
     flow: String,
@@ -276,6 +283,7 @@ pub async fn bulk_restore_servers(
 }
 
 /// Perform manual sync operation
+#[cfg(feature = "gui")]
 pub async fn perform_manual_sync(settings: KhmSettings) -> Result<String, String> {
     match perform_sync(&settings).await {
         Ok(keys_count) => Ok(format!(
@@ -288,6 +296,7 @@ pub async fn perform_manual_sync(settings: KhmSettings) -> Result<String, String
 
 // Helper functions
 
+#[cfg(feature = "gui")]
 fn create_http_client() -> Result<Client, String> {
     Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -296,6 +305,7 @@ fn create_http_client() -> Result<Client, String> {
         .map_err(|e| format!("Failed to create HTTP client: {}", e))
 }
 
+#[cfg(feature = "gui")]
 fn add_auth_if_needed(
     request: reqwest::RequestBuilder,
     basic_auth: &str,
@@ -312,6 +322,7 @@ fn add_auth_if_needed(
     }
 }
 
+#[cfg(feature = "gui")]
 fn check_response_status(response: &reqwest::Response) -> Result<(), String> {
     let status = response.status().as_u16();
 
@@ -336,6 +347,7 @@ fn check_response_status(response: &reqwest::Response) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "gui")]
 fn check_html_response(body: &str) -> Result<(), String> {
     if body.trim_start().starts_with("<!DOCTYPE") || body.trim_start().starts_with("<html") {
         return Err("Server returned HTML page instead of JSON. This usually means authentication is required or the endpoint is incorrect.".to_string());
@@ -343,6 +355,7 @@ fn check_html_response(body: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "gui")]
 fn parse_api_response(body: &str, default_message: &str) -> Result<String, String> {
     if let Ok(json_response) = serde_json::from_str::<serde_json::Value>(body) {
         if let Some(message) = json_response.get("message").and_then(|v| v.as_str()) {

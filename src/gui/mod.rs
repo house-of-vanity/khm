@@ -1,6 +1,8 @@
+#[cfg(feature = "gui")]
 use log::info;
 
 // Modules
+#[cfg(feature = "gui")]
 mod admin;
 mod api;
 mod common;
