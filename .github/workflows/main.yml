@@ -100,7 +100,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}
-          path: target/${{ matrix.build_target }}/release/${{ env.BINARY_NAME }}*
+          path: |
+            target/${{ matrix.build_target }}/release/${{ env.BINARY_NAME }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
 
   release:
     name: Create Release and Upload Assets
@@ -126,17 +127,21 @@ jobs:
               platform=$(basename "$artifact_dir" | sed 's|khm_||')
               echo "Processing platform: $platform"
               
-              # Find binary files in the artifact directory
-              find "$artifact_dir" -name "${{ env.BINARY_NAME }}*" -type f | while read -r file; do
-                filename=$(basename "$file")
-                if [[ "$filename" == *".exe" ]]; then
-                  cp "$file" "release-assets/${{ env.BINARY_NAME }}_${platform}.exe"
-                  echo "Copied: $file -> release-assets/${{ env.BINARY_NAME }}_${platform}.exe"
-                else
-                  cp "$file" "release-assets/${{ env.BINARY_NAME }}_${platform}"
-                  echo "Copied: $file -> release-assets/${{ env.BINARY_NAME }}_${platform}"
+              # For Windows, look for .exe file specifically
+              if [[ "$platform" == "windows-amd64" ]]; then
+                exe_file=$(find "$artifact_dir" -name "${{ env.BINARY_NAME }}.exe" -type f | head -1)
+                if [[ -n "$exe_file" ]]; then
+                  cp "$exe_file" "release-assets/${{ env.BINARY_NAME }}_${platform}.exe"
+                  echo "Copied: $exe_file -> release-assets/${{ env.BINARY_NAME }}_${platform}.exe"
                 fi
-              done
+              else
+                # For Linux/macOS, look for binary without extension
+                binary_file=$(find "$artifact_dir" -name "${{ env.BINARY_NAME }}" -type f | head -1)
+                if [[ -n "$binary_file" ]]; then
+                  cp "$binary_file" "release-assets/${{ env.BINARY_NAME }}_${platform}"
+                  echo "Copied: $binary_file -> release-assets/${{ env.BINARY_NAME }}_${platform}"
+                fi
+              fi
             fi
           done
           
