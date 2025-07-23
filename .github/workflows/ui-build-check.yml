@@ -1,0 +1,71 @@
+name: UI Branch Build Check
+
+on:
+  push:
+    branches:
+      - UI
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-check:
+    name: Build Check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            build_target: x86_64-unknown-linux-musl
+          - os: windows-latest
+            build_target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            build_target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+      
+      - name: Cache Cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-index-
+      
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install rust targets
+        run: rustup target add ${{ matrix.build_target }}
+        
+      - name: Build Linux MUSL
+        if: matrix.os == 'ubuntu-latest'
+        uses: gmiam/rust-musl-action@master
+        with:
+          args: |
+            apk add --no-cache pkgconfig glib-dev gtk+3.0-dev
+            cargo build --target ${{ matrix.build_target }}
+          
+      - name: Build MacOS
+        if: matrix.os == 'macos-latest'
+        run: cargo build --target ${{ matrix.build_target }}
+          
+      - name: Build Windows
+        if: matrix.os == 'windows-latest'
+        run: cargo build --target ${{ matrix.build_target }}
