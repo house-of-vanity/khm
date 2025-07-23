@@ -68,7 +68,7 @@ jobs:
             export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
             export PKG_CONFIG_SYSROOT_DIR=/
             export PKG_CONFIG_ALL_STATIC=1
-            export RUSTFLAGS="-C target-feature=+crt-static"
+            export RUSTFLAGS='-C target-feature=+crt-static'
             cargo build --target ${{ matrix.build_target }}
           
       - name: Build MacOS
