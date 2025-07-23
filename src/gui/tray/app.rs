@@ -154,7 +154,6 @@ impl TrayApplication {
         if let Ok(exe_path) = std::env::current_exe() {
             std::thread::spawn(move || {
                 if let Err(e) = std::process::Command::new(&exe_path)
-                    .arg("--gui")
                     .arg("--settings-ui")
                     .spawn()
                 {

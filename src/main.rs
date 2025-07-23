@@ -1,5 +1,3 @@
-#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
-
 mod client;
 mod db;
 mod gui;
@@ -21,11 +19,20 @@ use log::{error, info};
     long_about = None,
     after_help = "Examples:\n\
     \n\
+    Running in GUI tray mode (default):\n\
+    khm\n\
+    \n\
+    Running in GUI tray mode with background daemon:\n\
+    khm --daemon\n\
+    \n\
     Running in server mode:\n\
     khm --server --ip 0.0.0.0 --port 1337 --db-host psql.psql.svc --db-name khm --db-user admin --db-password <SECRET> --flows work,home\n\
     \n\
     Running in client mode to send diff and sync ~/.ssh/known_hosts with remote flow `work` in place:\n\
     khm --host https://khm.example.com --flow work --known-hosts ~/.ssh/known_hosts --in-place\n\
+    \n\
+    Running settings window:\n\
+    khm --settings-ui\n\
     \n\
     "
 )]
@@ -34,12 +41,12 @@ pub struct Args {
     #[arg(long, help = "Run in server mode")]
     pub server: bool,
 
-    /// Run with GUI tray interface (default: false)
-    #[arg(long, help = "Run with GUI tray interface")]
-    pub gui: bool,
+    /// Hide console window and run in background (default: auto when no arguments)
+    #[arg(long, help = "Hide console window and run in background")]
+    pub daemon: bool,
 
-    /// Run settings UI window (used with --gui)
-    #[arg(long, help = "Run settings UI window (used with --gui)")]
+    /// Run settings UI window
+    #[arg(long, help = "Run settings UI window")]
     pub settings_ui: bool,
 
     /// Update the known_hosts file with keys from the server after sending keys (default: false)
@@ -154,8 +161,32 @@ async fn main() -> std::io::Result<()> {
 
     let args = Args::parse();
 
+    // Hide console on Windows if daemon flag is set
+    if args.daemon {
+        #[cfg(target_os = "windows")]
+        {
+            extern "system" {
+                fn FreeConsole() -> i32;
+            }
+            unsafe {
+                FreeConsole();
+            }
+        }
+    }
+
     // Settings UI mode - just show settings window and exit
     if args.settings_ui {
+        // Always hide console for settings window
+        #[cfg(target_os = "windows")]
+        {
+            extern "system" {
+                fn FreeConsole() -> i32;
+            }
+            unsafe {
+                FreeConsole();
+            }
+        }
+        
         #[cfg(feature = "gui")]
         {
             info!("Running settings UI window");
@@ -172,37 +203,24 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    // GUI mode has priority
-    if args.gui {
+    // Check if we should run GUI mode (default when no server/client args)
+    if !args.server && (args.host.is_none() || args.flow.is_none()) {
         info!("Running in GUI mode");
-        if let Err(e) = gui::run_gui().await {
-            error!("Failed to run GUI: {}", e);
+        #[cfg(feature = "gui")]
+        {
+            if let Err(e) = gui::run_gui().await {
+                error!("Failed to run GUI: {}", e);
+            }
+        }
+        #[cfg(not(feature = "gui"))]
+        {
+            error!("GUI features not compiled. Install system dependencies and rebuild with --features gui");
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "GUI features not compiled",
+            ));
         }
         return Ok(());
-    }
-
-    // Check if we have the minimum required arguments for server/client mode
-    if !args.server && !args.gui && (args.host.is_none() || args.flow.is_none()) {
-        // Neither server mode nor client mode nor GUI mode properly configured
-        eprintln!("Error: You must specify either server mode (--server), client mode (--host and --flow), or GUI mode (--gui)");
-        eprintln!();
-        eprintln!("Examples:");
-        eprintln!(
-            "  Server mode: {} --server --db-user admin --db-password pass --flows work,home",
-            env!("CARGO_PKG_NAME")
-        );
-        eprintln!(
-            "  Client mode: {} --host https://khm.example.com --flow work",
-            env!("CARGO_PKG_NAME")
-        );
-        eprintln!("  GUI mode: {} --gui", env!("CARGO_PKG_NAME"));
-        eprintln!(
-            "  Settings window: {} --gui --settings-ui",
-            env!("CARGO_PKG_NAME")
-        );
-        eprintln!();
-        eprintln!("Use --help for more information.");
-        std::process::exit(1);
     }
 
     if args.server {

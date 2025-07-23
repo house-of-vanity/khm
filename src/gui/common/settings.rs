@@ -115,7 +115,7 @@ pub async fn perform_sync(settings: &KhmSettings) -> Result<usize, std::io::Erro
     // Convert KhmSettings to Args for client module
     let args = Args {
         server: false,
-        gui: false,
+        daemon: false,
         settings_ui: false,
         in_place: settings.in_place,
         flows: vec!["default".to_string()], // Not used in client mode
