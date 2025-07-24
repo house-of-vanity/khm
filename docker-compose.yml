@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  khm:
+    image: ultradesu/khm:latest
+    restart: unless-stopped
+    environment:
+      # Server mode configuration
+      - KHM_SERVER=true
+      - KHM_IP=0.0.0.0
+      - KHM_PORT=8080
+      - KHM_DB_HOST=postgres
+      - KHM_DB_NAME=khm
+      - KHM_DB_USER=khm
+      - KHM_DB_PASSWORD=changeme
+      - KHM_FLOWS=prod,staging,dev
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    command: ["--server", "--ip", "0.0.0.0", "--port", "8080", "--db-host", "postgres", "--db-name", "khm", "--db-user", "khm", "--db-password", "changeme", "--flows", "prod,staging,dev"]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=khm
+      - POSTGRES_PASSWORD=changeme
+      - POSTGRES_DB=khm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

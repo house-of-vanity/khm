@@ -1,23 +1,20 @@
 # syntax=docker/dockerfile:1
 
-FROM ubuntu:22.04
+FROM alpine:3.19
 
-# Install runtime dependencies including GUI libraries
-RUN apt-get update && apt-get install -y \
+# Install only essential runtime dependencies
+RUN apk add --no-cache \
     ca-certificates \
-    libssl3 \
-    libgtk-3-0 \
-    libglib2.0-0 \
-    libcairo2 \
-    libpango-1.0-0 \
-    libatk1.0-0 \
-    libgdk-pixbuf2.0-0 \
-    libxdo3 \
-    && rm -rf /var/lib/apt/lists/*
+    libgcc \
+    libstdc++
 
-# Copy the appropriate binary based on the target architecture
+# Copy the CLI binary (without GUI dependencies)
 ARG TARGETARCH
 COPY bin/linux_${TARGETARCH}/khm /usr/local/bin/khm
 RUN chmod +x /usr/local/bin/khm
+
+# Create non-root user
+RUN adduser -D -u 1000 khm
+USER khm
 
 ENTRYPOINT ["/usr/local/bin/khm"]
