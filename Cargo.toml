@@ -17,6 +17,7 @@ path = "src/bin/cli.rs"
 [[bin]]
 name = "khm-desktop"
 path = "src/bin/desktop.rs"
+required-features = ["gui"]
 
 [dependencies]
 actix-web = "4"
