@@ -18,16 +18,7 @@ use winit::platform::macos::EventLoopBuilderExtMacOS;
 #[cfg(target_os = "linux")]
 use gtk::glib;
 
-// GTK initialization for Linux tray support
-#[cfg(target_os = "linux")]
-static GTK_INIT: std::sync::Once = std::sync::Once::new();
-
 // Channel for Linux tray communication
-#[cfg(target_os = "linux")]
-type LinuxTrayChannel = (
-    std::sync::mpsc::Sender<LinuxTrayCommand>,
-    std::sync::mpsc::Receiver<LinuxTrayResponse>,
-);
 
 #[cfg(target_os = "linux")]
 enum LinuxTrayCommand {
@@ -41,6 +32,7 @@ enum LinuxTrayCommand {
     SetTooltip {
         tooltip: String,
     },
+    #[allow(dead_code)]
     Quit,
 }
 
@@ -49,6 +41,7 @@ enum LinuxTrayResponse {
     TrayCreated {
         menu_ids: TrayMenuIds,
     },
+    #[allow(dead_code)]
     MenuUpdated {
         menu_ids: TrayMenuIds,
     },
@@ -334,7 +327,7 @@ impl ApplicationHandler<crate::gui::UserEvent> for TrayApplication {
                 let mut tray_icon: Option<TrayIcon> = None;
                 
                 // Set up GTK event handlers
-                let tx_clone = tx.clone();
+                let _tx_clone = tx.clone();
                 glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
                     while let Ok(cmd) = rx.try_recv() {
                         match cmd {
