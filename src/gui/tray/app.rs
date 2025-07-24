@@ -15,9 +15,45 @@ use winit::{
 #[cfg(target_os = "macos")]
 use winit::platform::macos::EventLoopBuilderExtMacOS;
 
+#[cfg(target_os = "linux")]
+use gtk::glib;
+
 // GTK initialization for Linux tray support
 #[cfg(target_os = "linux")]
 static GTK_INIT: std::sync::Once = std::sync::Once::new();
+
+// Channel for Linux tray communication
+#[cfg(target_os = "linux")]
+type LinuxTrayChannel = (
+    std::sync::mpsc::Sender<LinuxTrayCommand>,
+    std::sync::mpsc::Receiver<LinuxTrayResponse>,
+);
+
+#[cfg(target_os = "linux")]
+enum LinuxTrayCommand {
+    CreateTray {
+        settings: KhmSettings,
+        sync_status: SyncStatus,
+    },
+    UpdateMenu {
+        settings: KhmSettings,
+    },
+    SetTooltip {
+        tooltip: String,
+    },
+    Quit,
+}
+
+#[cfg(target_os = "linux")]
+enum LinuxTrayResponse {
+    TrayCreated {
+        menu_ids: TrayMenuIds,
+    },
+    MenuUpdated {
+        menu_ids: TrayMenuIds,
+    },
+    Error(String),
+}
 
 use super::{
     create_tooltip, create_tray_icon, start_auto_sync_task, update_sync_status, update_tray_menu,
@@ -26,7 +62,12 @@ use super::{
 use crate::gui::common::{get_config_path, load_settings, perform_sync, KhmSettings};
 
 pub struct TrayApplication {
+    #[cfg(not(target_os = "linux"))]
     tray_icon: Option<TrayIcon>,
+    #[cfg(target_os = "linux")]
+    linux_tray_tx: Option<std::sync::mpsc::Sender<LinuxTrayCommand>>,
+    #[cfg(target_os = "linux")]
+    linux_tray_handle: Option<std::thread::JoinHandle<()>>,
     menu_ids: Option<TrayMenuIds>,
     settings: Arc<Mutex<KhmSettings>>,
     sync_status: Arc<Mutex<SyncStatus>>,
@@ -39,7 +80,12 @@ pub struct TrayApplication {
 impl TrayApplication {
     pub fn new(proxy: EventLoopProxy<crate::gui::UserEvent>) -> Self {
         Self {
+            #[cfg(not(target_os = "linux"))]
             tray_icon: None,
+            #[cfg(target_os = "linux")]
+            linux_tray_tx: None,
+            #[cfg(target_os = "linux")]
+            linux_tray_handle: None,
             menu_ids: None,
             settings: Arc::new(Mutex::new(load_settings())),
             sync_status: Arc::new(Mutex::new(SyncStatus::default())),
@@ -94,10 +140,17 @@ impl TrayApplication {
         *self.settings.lock().unwrap() = new_settings;
 
         // Update menu
+        #[cfg(not(target_os = "linux"))]
         if let Some(tray_icon) = &self.tray_icon {
             let settings = self.settings.lock().unwrap();
             let new_menu_ids = update_tray_menu(tray_icon, &settings);
             self.menu_ids = Some(new_menu_ids);
+        }
+        
+        #[cfg(target_os = "linux")]
+        if let Some(ref tx) = self.linux_tray_tx {
+            let settings = self.settings.lock().unwrap().clone();
+            let _ = tx.send(LinuxTrayCommand::UpdateMenu { settings });
         }
 
         // Update tooltip
@@ -127,11 +180,18 @@ impl TrayApplication {
     }
 
     fn update_tooltip(&self) {
+        let settings = self.settings.lock().unwrap();
+        let sync_status = self.sync_status.lock().unwrap();
+        let tooltip = create_tooltip(&settings, &sync_status);
+        
+        #[cfg(not(target_os = "linux"))]
         if let Some(tray_icon) = &self.tray_icon {
-            let settings = self.settings.lock().unwrap();
-            let sync_status = self.sync_status.lock().unwrap();
-            let tooltip = create_tooltip(&settings, &sync_status);
             let _ = tray_icon.set_tooltip(Some(&tooltip));
+        }
+        
+        #[cfg(target_os = "linux")]
+        if let Some(ref tx) = self.linux_tray_tx {
+            let _ = tx.send(LinuxTrayCommand::SetTooltip { tooltip });
         }
     }
 
@@ -225,17 +285,9 @@ impl ApplicationHandler<crate::gui::UserEvent> for TrayApplication {
     }
 
     fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        #[cfg(not(target_os = "linux"))]
         if self.tray_icon.is_none() {
             info!("Creating tray icon");
-            
-            // Initialize GTK on Linux before creating tray icon
-            #[cfg(target_os = "linux")]
-            GTK_INIT.call_once(|| {
-                if let Err(e) = gtk::init() {
-                    error!("Failed to initialize GTK: {}", e);
-                }
-            });
-            
             let settings = self.settings.lock().unwrap();
             let sync_status = self.sync_status.lock().unwrap();
             
@@ -255,12 +307,105 @@ impl ApplicationHandler<crate::gui::UserEvent> for TrayApplication {
                     drop(settings);
                     drop(sync_status);
                     error!("Failed to create tray icon. This usually means the required system libraries are not installed.");
-                    error!("On Ubuntu/Debian, try installing: sudo apt install libayatana-appindicator3-1");
-                    error!("Alternative: sudo apt install libappindicator3-1");
                     error!("KHM will exit as system tray integration is required for desktop mode.");
-                    
-                    // Exit if tray icon creation fails
                     std::process::exit(1);
+                }
+            }
+        }
+        
+        #[cfg(target_os = "linux")]
+        if self.linux_tray_tx.is_none() {
+            info!("Creating tray icon on Linux");
+            
+            let (tx, rx) = std::sync::mpsc::channel();
+            let (response_tx, response_rx) = std::sync::mpsc::channel();
+            self.linux_tray_tx = Some(tx.clone());
+            
+            let proxy = self.proxy.clone();
+            
+            // Spawn GTK thread for tray
+            let handle = std::thread::spawn(move || {
+                if let Err(e) = gtk::init() {
+                    error!("Failed to initialize GTK: {}", e);
+                    let _ = response_tx.send(LinuxTrayResponse::Error(format!("GTK init failed: {}", e)));
+                    return;
+                }
+                
+                let mut tray_icon: Option<TrayIcon> = None;
+                
+                // Set up GTK event handlers
+                let tx_clone = tx.clone();
+                glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                    while let Ok(cmd) = rx.try_recv() {
+                        match cmd {
+                            LinuxTrayCommand::CreateTray { settings, sync_status } => {
+                                match std::panic::catch_unwind(|| create_tray_icon(&settings, &sync_status)) {
+                                    Ok((icon, menu_ids)) => {
+                                        tray_icon = Some(icon);
+                                        let _ = response_tx.send(LinuxTrayResponse::TrayCreated { menu_ids });
+                                    }
+                                    Err(_) => {
+                                        let _ = response_tx.send(LinuxTrayResponse::Error("Failed to create tray".to_string()));
+                                    }
+                                }
+                            }
+                            LinuxTrayCommand::UpdateMenu { settings } => {
+                                if let Some(ref icon) = tray_icon {
+                                    let menu_ids = update_tray_menu(icon, &settings);
+                                    let _ = response_tx.send(LinuxTrayResponse::MenuUpdated { menu_ids });
+                                }
+                            }
+                            LinuxTrayCommand::SetTooltip { tooltip } => {
+                                if let Some(ref icon) = tray_icon {
+                                    let _ = icon.set_tooltip(Some(&tooltip));
+                                }
+                            }
+                            LinuxTrayCommand::Quit => {
+                                gtk::main_quit();
+                                return glib::ControlFlow::Break;
+                            }
+                        }
+                    }
+                    
+                    // Check for menu events
+                    if let Ok(event) = MenuEvent::receiver().try_recv() {
+                        let _ = proxy.send_event(crate::gui::UserEvent::MenuEvent(event));
+                    }
+                    
+                    glib::ControlFlow::Continue
+                });
+                
+                gtk::main();
+            });
+            
+            self.linux_tray_handle = Some(handle);
+            
+            // Send command to create tray
+            let settings = self.settings.lock().unwrap().clone();
+            let sync_status = self.sync_status.lock().unwrap().clone();
+            
+            if let Some(ref tx) = self.linux_tray_tx {
+                let _ = tx.send(LinuxTrayCommand::CreateTray { settings, sync_status });
+                
+                // Wait for response
+                match response_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                    Ok(LinuxTrayResponse::TrayCreated { menu_ids }) => {
+                        self.menu_ids = Some(menu_ids);
+                        self.setup_file_watcher();
+                        self.start_auto_sync();
+                        info!("KHM tray application ready");
+                    }
+                    Ok(LinuxTrayResponse::Error(e)) => {
+                        error!("Failed to create tray icon: {}", e);
+                        error!("This usually means the required system libraries are not installed.");
+                        error!("On Ubuntu/Debian, try installing: sudo apt install libayatana-appindicator3-1");
+                        error!("Alternative: sudo apt install libappindicator3-1");
+                        std::process::exit(1);
+                    }
+                    _ => {
+                        error!("Timeout waiting for tray creation");
+                        std::process::exit(1);
+                    }
                 }
             }
         }
@@ -288,17 +433,6 @@ impl ApplicationHandler<crate::gui::UserEvent> for TrayApplication {
 
 /// Run tray application
 pub async fn run_tray_app() -> std::io::Result<()> {
-    // Initialize GTK early on Linux
-    #[cfg(target_os = "linux")]
-    {
-        if let Err(e) = gtk::init() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to initialize GTK: {}", e),
-            ));
-        }
-    }
-    
     #[cfg(target_os = "macos")]
     let event_loop = {
         use winit::platform::macos::ActivationPolicy;

@@ -2683,6 +2683,7 @@ dependencies = [
  "egui",
  "env_logger",
  "futures",
+ "glib",
  "gtk",
  "hostname",
  "log",

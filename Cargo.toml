@@ -49,12 +49,13 @@ urlencoding = "2.1"
 # Linux-specific dependencies for GTK tray support
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "0.18", optional = true }
+glib = { version = "0.18", optional = true }
 
 [features]
 default = ["server", "web", "gui"]
 cli = ["server", "web"]
 desktop = ["gui"]
-gui = ["tray-icon", "eframe", "egui", "winit", "notify", "notify-debouncer-mini", "gtk"]
+gui = ["tray-icon", "eframe", "egui", "winit", "notify", "notify-debouncer-mini", "gtk", "glib"]
 server = []
 web = []
 
