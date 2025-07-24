@@ -54,3 +54,7 @@ gui = ["tray-icon", "eframe", "egui", "winit", "notify", "notify-debouncer-mini"
 server = []
 web = []
 
+# Target-specific dependencies for cross-compilation
+[target.aarch64-unknown-linux-gnu.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
