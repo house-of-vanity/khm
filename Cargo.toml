@@ -36,7 +36,7 @@ trust-dns-resolver = "0.23"
 futures = "0.3"
 hostname = "0.3"
 rust-embed = "8.0"
-tray-icon = { version = "0.19", optional = true }
+tray-icon = { version = "0.21", optional = true }
 notify = { version = "6.1", optional = true }
 notify-debouncer-mini = { version = "0.4", optional = true }
 dirs = "5.0"

@@ -98,6 +98,7 @@ Download the latest binary from the [Releases](https://github.com/house-of-vanit
 ### System Dependencies
 For GUI features on Linux:
 ```bash
+# Build dependencies
 sudo apt-get install libgtk-3-dev libglib2.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev
 ```
 

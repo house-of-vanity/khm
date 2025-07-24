@@ -225,16 +225,31 @@ impl ApplicationHandler<crate::gui::UserEvent> for TrayApplication {
             info!("Creating tray icon");
             let settings = self.settings.lock().unwrap();
             let sync_status = self.sync_status.lock().unwrap();
-            let (tray_icon, menu_ids) = create_tray_icon(&settings, &sync_status);
-            drop(settings);
-            drop(sync_status);
+            
+            match std::panic::catch_unwind(|| create_tray_icon(&settings, &sync_status)) {
+                Ok((tray_icon, menu_ids)) => {
+                    drop(settings);
+                    drop(sync_status);
 
-            self.tray_icon = Some(tray_icon);
-            self.menu_ids = Some(menu_ids);
+                    self.tray_icon = Some(tray_icon);
+                    self.menu_ids = Some(menu_ids);
 
-            self.setup_file_watcher();
-            self.start_auto_sync();
-            info!("KHM tray application ready");
+                    self.setup_file_watcher();
+                    self.start_auto_sync();
+                    info!("KHM tray application ready");
+                }
+                Err(_) => {
+                    drop(settings);
+                    drop(sync_status);
+                    error!("Failed to create tray icon. This usually means the required system libraries are not installed.");
+                    error!("On Ubuntu/Debian, try installing: sudo apt install libayatana-appindicator3-1");
+                    error!("Alternative: sudo apt install libappindicator3-1");
+                    error!("KHM will continue running but without system tray integration.");
+                    error!("You can still use --settings-ui to access the settings window.");
+                    
+                    // Don't exit, just continue without tray icon
+                }
+            }
         }
     }
 
