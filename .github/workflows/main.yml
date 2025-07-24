@@ -7,7 +7,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  BINARY_NAME: khm
+  CLI_BINARY_NAME: khm
+  DESKTOP_BINARY_NAME: khm-desktop
 
 jobs:
   build:
@@ -24,6 +25,10 @@ jobs:
           - os: ubuntu-latest
             build_target: x86_64-unknown-linux-gnu
             platform_name: linux-amd64
+            build_type: dynamic
+          - os: ubuntu-latest
+            build_target: aarch64-unknown-linux-gnu
+            platform_name: linux-arm64
             build_type: dynamic
           - os: windows-latest
             build_target: x86_64-pc-windows-msvc
@@ -67,15 +72,34 @@ jobs:
       - name: Install rust targets
         run: rustup target add ${{ matrix.build_target }}
         
-      - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'dynamic'
+      - name: Install Linux x86_64 dependencies
+        if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'dynamic' && matrix.build_target == 'x86_64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config libgtk-3-dev libglib2.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libxdo-dev
           
-      - name: Build Linux Dynamic
-        if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'dynamic'
-        run: cargo build --target ${{ matrix.build_target }} --release
+      - name: Install Linux ARM64 cross-compilation dependencies
+        if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'dynamic' && matrix.build_target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu pkg-config libssl-dev
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev:arm64 libgtk-3-dev:arm64 libglib2.0-dev:arm64 libcairo2-dev:arm64 libpango1.0-dev:arm64 libatk1.0-dev:arm64 libgdk-pixbuf2.0-dev:arm64 libxdo-dev:arm64
+          
+      - name: Build Linux x86_64
+        if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'dynamic' && matrix.build_target == 'x86_64-unknown-linux-gnu'
+        run: cargo build --target ${{ matrix.build_target }} --release --bins
+        
+      - name: Build Linux ARM64
+        if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'dynamic' && matrix.build_target == 'aarch64-unknown-linux-gnu'
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          PKG_CONFIG_ALLOW_CROSS: 1
+          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
+        run: cargo build --target ${{ matrix.build_target }} --release --bins
         
       # - name: Build Linux MUSL (no GUI)
       #   if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'musl'
@@ -90,18 +114,26 @@ jobs:
           
       - name: Build MacOS
         if: matrix.os == 'macos-latest'
-        run: cargo build --target ${{ matrix.build_target }} --release
+        run: cargo build --target ${{ matrix.build_target }} --release --bins
           
       - name: Build Windows
         if: matrix.os == 'windows-latest'
-        run: cargo build --target ${{ matrix.build_target }} --release
+        run: cargo build --target ${{ matrix.build_target }} --release --bins
           
-      - name: Upload artifact
+      - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BINARY_NAME }}_${{ matrix.platform_name }}
+          name: ${{ env.CLI_BINARY_NAME }}_${{ matrix.platform_name }}
           path: |
-            target/${{ matrix.build_target }}/release/${{ env.BINARY_NAME }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+            target/${{ matrix.build_target }}/release/${{ env.CLI_BINARY_NAME }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+            
+      - name: Upload Desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DESKTOP_BINARY_NAME }}_${{ matrix.platform_name }}
+          path: |
+            target/${{ matrix.build_target }}/release/${{ env.DESKTOP_BINARY_NAME }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        continue-on-error: true  # Don't fail if desktop binary doesn't build on some platforms
 
   release:
     name: Create Release and Upload Assets
@@ -124,22 +156,38 @@ jobs:
           # Copy files with proper naming from each artifact directory
           for artifact_dir in artifacts/*/; do
             if [[ -d "$artifact_dir" ]]; then
-              platform=$(basename "$artifact_dir" | sed 's|khm_||')
-              echo "Processing platform: $platform"
+              artifact_name=$(basename "$artifact_dir")
+              echo "Processing artifact: $artifact_name"
+              
+              # Extract binary type and platform from artifact name
+              if [[ "$artifact_name" =~ ^khm-desktop_(.*)$ ]]; then
+                binary_type="desktop"
+                platform="${BASH_REMATCH[1]}"
+                binary_name="${{ env.DESKTOP_BINARY_NAME }}"
+              elif [[ "$artifact_name" =~ ^khm_(.*)$ ]]; then
+                binary_type="cli"
+                platform="${BASH_REMATCH[1]}"
+                binary_name="${{ env.CLI_BINARY_NAME }}"
+              else
+                echo "Unknown artifact format: $artifact_name"
+                continue
+              fi
+              
+              echo "Binary type: $binary_type, Platform: $platform, Binary name: $binary_name"
               
               # For Windows, look for .exe file specifically
               if [[ "$platform" == "windows-amd64" ]]; then
-                exe_file=$(find "$artifact_dir" -name "${{ env.BINARY_NAME }}.exe" -type f | head -1)
+                exe_file=$(find "$artifact_dir" -name "${binary_name}.exe" -type f | head -1)
                 if [[ -n "$exe_file" ]]; then
-                  cp "$exe_file" "release-assets/${{ env.BINARY_NAME }}_${platform}.exe"
-                  echo "Copied: $exe_file -> release-assets/${{ env.BINARY_NAME }}_${platform}.exe"
+                  cp "$exe_file" "release-assets/${binary_name}_${platform}.exe"
+                  echo "Copied: $exe_file -> release-assets/${binary_name}_${platform}.exe"
                 fi
               else
                 # For Linux/macOS, look for binary without extension
-                binary_file=$(find "$artifact_dir" -name "${{ env.BINARY_NAME }}" -type f | head -1)
+                binary_file=$(find "$artifact_dir" -name "${binary_name}" -type f | head -1)
                 if [[ -n "$binary_file" ]]; then
-                  cp "$binary_file" "release-assets/${{ env.BINARY_NAME }}_${platform}"
-                  echo "Copied: $binary_file -> release-assets/${{ env.BINARY_NAME }}_${platform}"
+                  cp "$binary_file" "release-assets/${binary_name}_${platform}"
+                  echo "Copied: $binary_file -> release-assets/${binary_name}_${platform}"
                 fi
               fi
             fi
@@ -165,15 +213,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: actions/download-artifact@v4
-        name: Download Linux artifact
+      - name: Download Linux AMD64 CLI artifact
+        uses: actions/download-artifact@v4
         with:
-          name: ${{ env.BINARY_NAME }}_linux-amd64
-          path: .
+          name: ${{ env.CLI_BINARY_NAME }}_linux-amd64
+          path: amd64/
           
-      - name: List downloaded files
+      - name: Download Linux ARM64 CLI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.CLI_BINARY_NAME }}_linux-arm64
+          path: arm64/
+          
+      - name: Prepare binaries for multi-arch build
         run: |
-          ls -lah
+          mkdir -p bin/linux_amd64 bin/linux_arm64
+          cp amd64/${{ env.CLI_BINARY_NAME }} bin/linux_amd64/${{ env.CLI_BINARY_NAME }}
+          cp arm64/${{ env.CLI_BINARY_NAME }} bin/linux_arm64/${{ env.CLI_BINARY_NAME }}
+          chmod +x bin/linux_amd64/${{ env.CLI_BINARY_NAME }}
+          chmod +x bin/linux_arm64/${{ env.CLI_BINARY_NAME }}
+          ls -la bin/*/
           
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -187,10 +246,6 @@ jobs:
           username: ultradesu
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           
-      - name: Set exec flag
-        run: |
-          chmod +x ${{ env.BINARY_NAME }}
-          
       - name: Set outputs
         id: get_tag
         run: |
@@ -202,5 +257,5 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ultradesu/${{ env.BINARY_NAME }}:latest,ultradesu/${{ env.BINARY_NAME }}:${{ steps.get_tag.outputs.tag }}
+          tags: ultradesu/${{ env.CLI_BINARY_NAME }}:latest,ultradesu/${{ env.CLI_BINARY_NAME }}:${{ steps.get_tag.outputs.tag }}
 

@@ -300,48 +300,60 @@ pub async fn run_server(args: crate::Args) -> std::io::Result<()> {
 
     info!("Starting HTTP server on {}:{}", args.ip, args.port);
     HttpServer::new(move || {
-        App::new()
+        let mut app = App::new()
             .app_data(web::Data::new(flows.clone()))
             .app_data(web::Data::new(db_client.clone()))
             .app_data(allowed_flows.clone())
-            // API routes
-            .route("/api/version", web::get().to(crate::web::get_version_api))
-            .route("/api/flows", web::get().to(crate::web::get_flows_api))
-            .route(
-                "/{flow_id}/scan-dns",
-                web::post().to(crate::web::scan_dns_resolution),
-            )
-            .route(
-                "/{flow_id}/bulk-deprecate",
-                web::post().to(crate::web::bulk_deprecate_servers),
-            )
-            .route(
-                "/{flow_id}/bulk-restore",
-                web::post().to(crate::web::bulk_restore_servers),
-            )
-            .route(
-                "/{flow_id}/keys/{server}",
-                web::delete().to(crate::web::delete_key_by_server),
-            )
-            .route(
-                "/{flow_id}/keys/{server}/restore",
-                web::post().to(crate::web::restore_key_by_server),
-            )
-            .route(
-                "/{flow_id}/keys/{server}/delete",
-                web::delete().to(crate::web::permanently_delete_key_by_server),
-            )
             // Original API routes
             .route("/{flow_id}/keys", web::get().to(get_keys))
-            .route("/{flow_id}/keys", web::post().to(add_keys))
-            // Web interface routes
-            .route("/", web::get().to(crate::web::serve_web_interface))
-            .route(
-                "/static/{filename:.*}",
-                web::get().to(crate::web::serve_static_file),
-            )
+            .route("/{flow_id}/keys", web::post().to(add_keys));
+        
+        #[cfg(feature = "web")]
+        {
+            app = app.configure(configure_web_routes);
+        }
+        
+        app
     })
     .bind((args.ip.as_str(), args.port))?
     .run()
     .await
+}
+
+#[cfg(feature = "web")]
+fn configure_web_routes(cfg: &mut web::ServiceConfig) {
+    cfg
+        // API routes
+        .route("/api/version", web::get().to(crate::web::get_version_api))
+        .route("/api/flows", web::get().to(crate::web::get_flows_api))
+        .route(
+            "/{flow_id}/scan-dns",
+            web::post().to(crate::web::scan_dns_resolution),
+        )
+        .route(
+            "/{flow_id}/bulk-deprecate",
+            web::post().to(crate::web::bulk_deprecate_servers),
+        )
+        .route(
+            "/{flow_id}/bulk-restore",
+            web::post().to(crate::web::bulk_restore_servers),
+        )
+        .route(
+            "/{flow_id}/keys/{server}",
+            web::delete().to(crate::web::delete_key_by_server),
+        )
+        .route(
+            "/{flow_id}/keys/{server}/restore",
+            web::post().to(crate::web::restore_key_by_server),
+        )
+        .route(
+            "/{flow_id}/keys/{server}/delete",
+            web::delete().to(crate::web::permanently_delete_key_by_server),
+        )
+        // Web interface routes
+        .route("/", web::get().to(crate::web::serve_web_interface))
+        .route(
+            "/static/{filename:.*}",
+            web::get().to(crate::web::serve_static_file),
+        );
 }

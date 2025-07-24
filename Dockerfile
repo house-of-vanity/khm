@@ -15,7 +15,9 @@ RUN apt-get update && apt-get install -y \
     libxdo3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY khm /usr/local/bin/khm
+# Copy the appropriate binary based on the target architecture
+ARG TARGETARCH
+COPY bin/linux_${TARGETARCH}/khm /usr/local/bin/khm
 RUN chmod +x /usr/local/bin/khm
 
 ENTRYPOINT ["/usr/local/bin/khm"]

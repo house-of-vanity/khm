@@ -10,6 +10,14 @@ license = "WTFPL"
 keywords = ["ssh", "known-hosts", "security", "system-admin", "automation"]
 categories = ["command-line-utilities", "network-programming"]
 
+[[bin]]
+name = "khm"
+path = "src/bin/cli.rs"
+
+[[bin]]
+name = "khm-desktop"
+path = "src/bin/desktop.rs"
+
 [dependencies]
 actix-web = "4"
 serde = { version = "1.0", features = ["derive"] }
@@ -38,7 +46,10 @@ env_logger = "0.11"
 urlencoding = "2.1"
 
 [features]
-default = ["gui"]
+default = ["server", "web", "gui"]
+cli = ["server", "web"]
+desktop = ["gui"]
 gui = ["tray-icon", "eframe", "egui", "winit", "notify", "notify-debouncer-mini"]
 server = []
+web = []
 
