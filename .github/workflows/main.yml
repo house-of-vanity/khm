@@ -29,7 +29,7 @@ jobs:
           - os: ubuntu-latest
             build_target: aarch64-unknown-linux-gnu
             platform_name: linux-arm64
-            build_type: dynamic
+            build_type: dynamic  # CLI only - GUI deps too complex for cross-compilation
           - os: windows-latest
             build_target: x86_64-pc-windows-msvc
             platform_name: windows-amd64
@@ -83,23 +83,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu pkg-config libssl-dev
-          sudo dpkg --add-architecture arm64
-          sudo apt-get update
-          sudo apt-get install -y libssl-dev:arm64 libgtk-3-dev:arm64 libglib2.0-dev:arm64 libcairo2-dev:arm64 libpango1.0-dev:arm64 libatk1.0-dev:arm64 libgdk-pixbuf2.0-dev:arm64 libxdo-dev:arm64
           
       - name: Build Linux x86_64
         if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'dynamic' && matrix.build_target == 'x86_64-unknown-linux-gnu'
         run: cargo build --target ${{ matrix.build_target }} --release --bins
         
-      - name: Build Linux ARM64
+      - name: Build Linux ARM64 (CLI only)
         if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'dynamic' && matrix.build_target == 'aarch64-unknown-linux-gnu'
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
           CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
           PKG_CONFIG_ALLOW_CROSS: 1
-          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
-        run: cargo build --target ${{ matrix.build_target }} --release --bins
+        run: cargo build --target ${{ matrix.build_target }} --release --bin khm --features cli
         
       # - name: Build Linux MUSL (no GUI)
       #   if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'musl'
@@ -128,6 +124,8 @@ jobs:
             target/${{ matrix.build_target }}/release/${{ env.CLI_BINARY_NAME }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
             
       - name: Upload Desktop artifact
+        # Only upload desktop binary for x86_64 platforms (not ARM64)
+        if: matrix.build_target != 'aarch64-unknown-linux-gnu'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.DESKTOP_BINARY_NAME }}_${{ matrix.platform_name }}
