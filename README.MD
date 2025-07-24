@@ -88,11 +88,12 @@ Download the latest binary from the [Releases](https://github.com/house-of-vanit
    ```
 3. Build and run:
    ```bash
-   # Build with GUI support (default)
-   cargo build --release
+   # Build both binaries (CLI without GUI, Desktop with GUI)
+   cargo build --release --bin khm --no-default-features --features cli
+   cargo build --release --bin khm-desktop
    
-   # Build server-only version
-   cargo build --release --no-default-features --features server
+   # Or build all at once with default features
+   cargo build --release
    ```
 
 ### System Dependencies
