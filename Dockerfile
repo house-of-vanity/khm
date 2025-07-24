@@ -2,9 +2,10 @@
 
 FROM alpine:3.19
 
-# Install only essential runtime dependencies
+# Install glibc compatibility for Alpine
 RUN apk add --no-cache \
     ca-certificates \
+    gcompat \
     libgcc \
     libstdc++
 
