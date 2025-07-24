@@ -15,6 +15,10 @@ use winit::{
 #[cfg(target_os = "macos")]
 use winit::platform::macos::EventLoopBuilderExtMacOS;
 
+// GTK initialization for Linux tray support
+#[cfg(target_os = "linux")]
+static GTK_INIT: std::sync::Once = std::sync::Once::new();
+
 use super::{
     create_tooltip, create_tray_icon, start_auto_sync_task, update_sync_status, update_tray_menu,
     SyncStatus, TrayMenuIds,
@@ -223,6 +227,15 @@ impl ApplicationHandler<crate::gui::UserEvent> for TrayApplication {
     fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         if self.tray_icon.is_none() {
             info!("Creating tray icon");
+            
+            // Initialize GTK on Linux before creating tray icon
+            #[cfg(target_os = "linux")]
+            GTK_INIT.call_once(|| {
+                if let Err(e) = gtk::init() {
+                    error!("Failed to initialize GTK: {}", e);
+                }
+            });
+            
             let settings = self.settings.lock().unwrap();
             let sync_status = self.sync_status.lock().unwrap();
             
@@ -244,10 +257,10 @@ impl ApplicationHandler<crate::gui::UserEvent> for TrayApplication {
                     error!("Failed to create tray icon. This usually means the required system libraries are not installed.");
                     error!("On Ubuntu/Debian, try installing: sudo apt install libayatana-appindicator3-1");
                     error!("Alternative: sudo apt install libappindicator3-1");
-                    error!("KHM will continue running but without system tray integration.");
-                    error!("You can still use --settings-ui to access the settings window.");
+                    error!("KHM will exit as system tray integration is required for desktop mode.");
                     
-                    // Don't exit, just continue without tray icon
+                    // Exit if tray icon creation fails
+                    std::process::exit(1);
                 }
             }
         }
@@ -275,6 +288,17 @@ impl ApplicationHandler<crate::gui::UserEvent> for TrayApplication {
 
 /// Run tray application
 pub async fn run_tray_app() -> std::io::Result<()> {
+    // Initialize GTK early on Linux
+    #[cfg(target_os = "linux")]
+    {
+        if let Err(e) = gtk::init() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to initialize GTK: {}", e),
+            ));
+        }
+    }
+    
     #[cfg(target_os = "macos")]
     let event_loop = {
         use winit::platform::macos::ActivationPolicy;
