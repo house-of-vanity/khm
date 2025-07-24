@@ -17,7 +17,7 @@ use crate::server::Flows;
 #[folder = "static/"]
 struct StaticAssets;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DnsResolutionResult {
     pub server: String,
     pub resolved: bool,

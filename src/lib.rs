@@ -4,6 +4,8 @@ pub mod gui;
 pub mod server;
 #[cfg(feature = "web")]
 pub mod web;
+#[cfg(feature = "web-gui")]
+pub mod web_gui;
 
 use clap::Parser;
 
@@ -111,3 +113,7 @@ pub struct Args {
     #[arg(long, default_value = "", help = "Client mode: Basic Auth credentials")]
     pub basic_auth: String,
 }
+
+// Re-export WASM functions for wasm-pack
+#[cfg(all(target_arch = "wasm32", feature = "web-gui"))]
+pub use web_gui::wasm::*;

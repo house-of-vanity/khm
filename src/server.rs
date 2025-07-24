@@ -356,4 +356,13 @@ fn configure_web_routes(cfg: &mut web::ServiceConfig) {
             "/static/{filename:.*}",
             web::get().to(crate::web::serve_static_file),
         );
+    
+    // Web GUI routes
+    cfg.route("/gui", web::get().to(crate::web_gui::serve_egui_interface))
+        .route("/gui/", web::get().to(crate::web_gui::serve_egui_interface))
+        .route("/gui/config", web::get().to(crate::web_gui::get_gui_config))
+        .route("/gui/state", web::get().to(crate::web_gui::get_gui_state))
+        .route("/gui/settings", web::post().to(crate::web_gui::update_gui_settings))
+        .route("/wasm/{filename:.*}", web::get().to(crate::web_gui::serve_wasm_file));
 }
+
