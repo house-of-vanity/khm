@@ -209,6 +209,46 @@ pub struct WebAdminApp {
     pending_operation: String,
     flows_loaded: bool,
     auto_load_keys: bool,
+    
+    // Window state management
+    windows: WindowState,
+    
+    // Action states for windows
+    pending_bulk_action: BulkAction,
+    pending_key_action: KeyAction,
+}
+
+#[derive(Debug, Clone)]
+pub struct WindowState {
+    pub show_statistics: bool,
+    pub show_bulk_actions: bool,
+    pub show_keys_table: bool,
+    pub show_flow_selector: bool,
+    
+    // Window positions (for persistence)
+    pub statistics_pos: Option<egui::Pos2>,
+    pub bulk_actions_pos: Option<egui::Pos2>,
+    pub keys_table_pos: Option<egui::Pos2>,
+    pub flow_selector_pos: Option<egui::Pos2>,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            // Show essential windows by default
+            show_statistics: true,
+            show_bulk_actions: false, // Show only when items selected
+            show_keys_table: true,
+            show_flow_selector: true,
+            
+            // Smart initial positioning to avoid overlap
+            // Layout: Flow selector (top-left), Statistics (top-right), Keys (bottom-center), Bulk Actions (top-center when needed)
+            flow_selector_pos: Some(egui::pos2(20.0, 70.0)),      // Top-left
+            statistics_pos: Some(egui::pos2(450.0, 70.0)),        // Top-right  
+            keys_table_pos: Some(egui::pos2(20.0, 280.0)),        // Bottom-large area
+            bulk_actions_pos: Some(egui::pos2(230.0, 70.0)),      // Top-center (when visible)
+        }
+    }
 }
 
 impl Default for WebAdminApp {
@@ -226,6 +266,9 @@ impl Default for WebAdminApp {
             pending_operation: String::new(),
             flows_loaded: false,
             auto_load_keys: false,
+            windows: WindowState::default(),
+            pending_bulk_action: BulkAction::None,
+            pending_key_action: KeyAction::None,
         }
     }
 }
@@ -451,131 +494,304 @@ impl eframe::App for WebAdminApp {
             }
         }
         
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let title_size = if is_mobile { 22.0 } else { 28.0 };
-            ui.add_space(base_spacing);
-            ui.heading(egui::RichText::new("🔑 KHM Web Admin Panel").size(title_size));
-            ui.separator();
-            ui.add_space(base_spacing * 1.5);
-            
-            // Flow Selection
-            ui.group(|ui| {
-                ui.set_min_width(ui.available_width());
-                ui.vertical(|ui| {
-                    let section_title_size = if is_mobile { 16.0 } else { 18.0 };
-                    ui.label(egui::RichText::new("📂 Flow Selection").size(section_title_size).strong());
-                    ui.add_space(base_spacing);
-                    
-                    // Use vertical layout on mobile for better space usage
-                    if is_mobile {
-                        ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("Current Flow:").size(14.0));
-                            ui.add_space(5.0);
-                            
-                            let mut flow_changed = false;
-                            let old_flow = self.settings.selected_flow.clone();
-                            
-                            egui::ComboBox::from_id_salt("flow_selector")
-                                .selected_text(if self.settings.selected_flow.is_empty() { "Select flow..." } else { &self.settings.selected_flow })
-                                .width(ui.available_width() - 20.0)
-                                .show_ui(ui, |ui| {
-                                    for flow in &self.available_flows {
-                                        if ui.selectable_value(&mut self.settings.selected_flow, flow.clone(), egui::RichText::new(flow).size(14.0)).clicked() {
-                                            flow_changed = true;
-                                        }
-                                    }
-                                });
-                            
-                            if flow_changed && old_flow != self.settings.selected_flow {
-                                self.auto_load_keys = true;
-                            }
-                            
-                            ui.add_space(base_spacing);
-                            
-                            if ui.add_sized([ui.available_width(), button_height], egui::Button::new(egui::RichText::new("🔄 Refresh").size(14.0))).clicked() && !self.loading {
-                                if !self.settings.selected_flow.is_empty() {
-                                    self.load_keys();
-                                }
-                            }
-                        });
-                    } else {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Current Flow:").size(16.0));
-                            ui.add_space(10.0);
-                            
-                            let mut flow_changed = false;
-                            let old_flow = self.settings.selected_flow.clone();
-                            
-                            egui::ComboBox::from_id_salt("flow_selector")
-                                .selected_text(if self.settings.selected_flow.is_empty() { "Select flow..." } else { &self.settings.selected_flow })
-                                .width(300.0)
-                                .show_ui(ui, |ui| {
-                                    for flow in &self.available_flows {
-                                        if ui.selectable_value(&mut self.settings.selected_flow, flow.clone(), egui::RichText::new(flow).size(14.0)).clicked() {
-                                            flow_changed = true;
-                                        }
-                                    }
-                                });
-                            
-                            if flow_changed && old_flow != self.settings.selected_flow {
-                                self.auto_load_keys = true;
-                            }
-                            
-                            ui.add_space(20.0);
-                            
-                            if ui.add_sized([120.0, button_height], egui::Button::new(egui::RichText::new("🔄 Refresh").size(14.0))).clicked() && !self.loading {
-                                if !self.settings.selected_flow.is_empty() {
-                                    self.load_keys();
-                                }
-                            }
-                        });
+        // Main control panel with window toggles
+        egui::TopBottomPanel::top("control_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let title_size = if is_mobile { 18.0 } else { 22.0 };
+                ui.heading(egui::RichText::new("🔑 KHM Admin").size(title_size));
+                
+                ui.separator();
+                
+                // Window toggle buttons
+                ui.label("Windows:");
+                
+                if ui.selectable_label(self.windows.show_flow_selector, "📂 Flow").clicked() {
+                    self.windows.show_flow_selector = !self.windows.show_flow_selector;
+                }
+                
+                if ui.selectable_label(self.windows.show_statistics, "📊 Stats").clicked() {
+                    self.windows.show_statistics = !self.windows.show_statistics;
+                }
+                
+                if ui.selectable_label(self.windows.show_keys_table, "🔑 Keys").clicked() {
+                    self.windows.show_keys_table = !self.windows.show_keys_table;
+                }
+                
+                // Show bulk actions button only when items are selected
+                let selected_count = self.admin_state.selected_servers.values().filter(|&&v| v).count();
+                if selected_count > 0 {
+                    if ui.selectable_label(self.windows.show_bulk_actions, &format!("📋 Actions({})", selected_count)).clicked() {
+                        self.windows.show_bulk_actions = !self.windows.show_bulk_actions;
                     }
+                } else {
+                    self.windows.show_bulk_actions = false;
+                }
+                
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Status display
+                    ui.colored_label(egui::Color32::LIGHT_BLUE, &self.status_message);
+                    ui.label("Status:");
                 });
             });
-            
-            ui.add_space(base_spacing);
-            
-            // Statistics
-            if !self.admin_state.keys.is_empty() {
-                self.render_statistics(ui, is_mobile);
-                ui.add_space(base_spacing);
-            }
-            
-            // Search and filters
-            if !self.admin_state.keys.is_empty() {
-                self.render_search_controls(ui, is_mobile);
-                ui.add_space(base_spacing);
-            }
-            
-            // Bulk actions
-            let bulk_action = self.render_bulk_actions(ui, is_mobile, button_height);
-            if bulk_action != BulkAction::None {
-                self.handle_bulk_action(bulk_action);
-            }
-            
-            // Keys display
-            if !self.admin_state.filtered_keys.is_empty() {
-                let key_action = self.render_keys_table(ui, is_mobile, button_height);
-                if key_action != KeyAction::None {
-                    self.handle_key_action(key_action);
-                }
-            } else if !self.admin_state.keys.is_empty() {
-                self.render_empty_state(ui);
-            }
-            
-            ui.add_space(10.0);
-            
-            // Status bar
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label("Status:");
-                ui.colored_label(egui::Color32::LIGHT_BLUE, &self.status_message);
-            });
         });
+        
+        // Show individual windows
+        self.show_flow_selector_window(ctx, is_mobile, button_height);
+        self.show_statistics_window(ctx, is_mobile);
+        self.show_bulk_actions_window(ctx, is_mobile, button_height);
+        self.show_keys_table_window(ctx, is_mobile, button_height);
+        
+        // Handle actions from windows
+        if self.pending_bulk_action != BulkAction::None {
+            let action = self.pending_bulk_action.clone();
+            self.pending_bulk_action = BulkAction::None;
+            self.handle_bulk_action(action);
+        }
+        
+        if self.pending_key_action != KeyAction::None {
+            let action = self.pending_key_action.clone();
+            self.pending_key_action = KeyAction::None;
+            self.handle_key_action(action);
+        }
     }
 }
 
 impl WebAdminApp {
+    fn get_smart_window_positions(&self, ctx: &egui::Context, is_mobile: bool) -> (egui::Pos2, egui::Pos2, egui::Pos2, egui::Pos2) {
+        let screen_rect = ctx.screen_rect();
+        
+        if is_mobile {
+            // Mobile: stack windows vertically with small gaps
+            (
+                egui::pos2(10.0, 70.0),   // Flow selector
+                egui::pos2(10.0, 220.0),  // Statistics  
+                egui::pos2(10.0, 370.0),  // Keys table
+                egui::pos2(10.0, 170.0),  // Bulk actions (between stats and keys)
+            )
+        } else {
+            // Desktop: intelligent positioning based on screen size
+            let width = screen_rect.width();
+            let flow_x = 20.0;
+            let stats_x = (width * 0.6).min(600.0);
+            let bulk_x = (width * 0.3).min(350.0);
+            
+            (
+                egui::pos2(flow_x, 70.0),      // Flow selector (left)
+                egui::pos2(stats_x, 70.0),     // Statistics (right)
+                egui::pos2(20.0, 280.0),       // Keys table (bottom, full width)
+                egui::pos2(bulk_x, 70.0),      // Bulk actions (center)
+            )
+        }
+    }
+    
+    fn show_flow_selector_window(&mut self, ctx: &egui::Context, is_mobile: bool, button_height: f32) {
+        if !self.windows.show_flow_selector {
+            return;
+        }
+        
+        let mut window = egui::Window::new("📂 Flow Selection")
+            .resizable(true)
+            .collapsible(true)
+            .default_width(if is_mobile { 300.0 } else { 400.0 })
+            .default_height(150.0);
+            
+        // Use saved position or smart default
+        let (flow_pos, stats_pos, keys_pos, bulk_pos) = self.get_smart_window_positions(ctx, is_mobile);
+        let pos = self.windows.flow_selector_pos.unwrap_or(flow_pos);
+        window = window.current_pos(pos);
+        
+        let response = window.show(ctx, |ui| {
+            ui.vertical(|ui| {
+                if is_mobile {
+                    ui.label(egui::RichText::new("Current Flow:").size(14.0));
+                    ui.add_space(5.0);
+                    
+                    let mut flow_changed = false;
+                    let old_flow = self.settings.selected_flow.clone();
+                    
+                    egui::ComboBox::from_id_salt("flow_selector")
+                        .selected_text(if self.settings.selected_flow.is_empty() { "Select flow..." } else { &self.settings.selected_flow })
+                        .width(ui.available_width() - 20.0)
+                        .show_ui(ui, |ui| {
+                            for flow in &self.available_flows {
+                                if ui.selectable_value(&mut self.settings.selected_flow, flow.clone(), egui::RichText::new(flow).size(14.0)).clicked() {
+                                    flow_changed = true;
+                                }
+                            }
+                        });
+                    
+                    if flow_changed && old_flow != self.settings.selected_flow {
+                        self.auto_load_keys = true;
+                    }
+                    
+                    ui.add_space(8.0);
+                    
+                    if ui.add_sized([ui.available_width(), button_height], egui::Button::new(egui::RichText::new("🔄 Refresh Keys").size(14.0))).clicked() && !self.loading {
+                        if !self.settings.selected_flow.is_empty() {
+                            self.load_keys();
+                        }
+                    }
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Current Flow:").size(16.0));
+                        ui.add_space(10.0);
+                        
+                        let mut flow_changed = false;
+                        let old_flow = self.settings.selected_flow.clone();
+                        
+                        egui::ComboBox::from_id_salt("flow_selector")
+                            .selected_text(if self.settings.selected_flow.is_empty() { "Select flow..." } else { &self.settings.selected_flow })
+                            .width(200.0)
+                            .show_ui(ui, |ui| {
+                                for flow in &self.available_flows {
+                                    if ui.selectable_value(&mut self.settings.selected_flow, flow.clone(), egui::RichText::new(flow).size(14.0)).clicked() {
+                                        flow_changed = true;
+                                    }
+                                }
+                            });
+                        
+                        if flow_changed && old_flow != self.settings.selected_flow {
+                            self.auto_load_keys = true;
+                        }
+                    });
+                    
+                    ui.add_space(8.0);
+                    
+                    if ui.add_sized([120.0, button_height], egui::Button::new(egui::RichText::new("🔄 Refresh Keys").size(14.0))).clicked() && !self.loading {
+                        if !self.settings.selected_flow.is_empty() {
+                            self.load_keys();
+                        }
+                    }
+                }
+            });
+        });
+        
+        // Save window position
+        if let Some(response) = response {
+            if let Some(pos) = response.response.rect.left_top().into() {
+                self.windows.flow_selector_pos = Some(pos);
+            }
+        }
+    }
+    
+    fn show_statistics_window(&mut self, ctx: &egui::Context, is_mobile: bool) {
+        if !self.windows.show_statistics || self.admin_state.keys.is_empty() {
+            return;
+        }
+        
+        let mut window = egui::Window::new("📊 Statistics")
+            .resizable(true)
+            .collapsible(true)
+            .default_width(if is_mobile { 300.0 } else { 500.0 })
+            .default_height(200.0);
+            
+        // Use saved position or smart default
+        let (flow_pos, stats_pos, keys_pos, bulk_pos) = self.get_smart_window_positions(ctx, is_mobile);
+        let pos = self.windows.statistics_pos.unwrap_or(stats_pos);
+        window = window.current_pos(pos);
+        
+        let response = window.show(ctx, |ui| {
+            self.render_statistics(ui, is_mobile);
+        });
+        
+        // Save window position
+        if let Some(response) = response {
+            if let Some(pos) = response.response.rect.left_top().into() {
+                self.windows.statistics_pos = Some(pos);
+            }
+        }
+    }
+    
+    
+    fn show_bulk_actions_window(&mut self, ctx: &egui::Context, is_mobile: bool, button_height: f32) {
+        if !self.windows.show_bulk_actions {
+            return;
+        }
+        
+        let selected_count = self.admin_state.selected_servers.values().filter(|&&v| v).count();
+        if selected_count == 0 {
+            self.windows.show_bulk_actions = false;
+            return;
+        }
+        
+        let mut window = egui::Window::new(&format!("📋 Bulk Actions ({} selected)", selected_count))
+            .resizable(true)
+            .collapsible(true)
+            .default_width(if is_mobile { 300.0 } else { 350.0 })
+            .default_height(150.0);
+            
+        // Use saved position or smart default
+        let (flow_pos, stats_pos, keys_pos, bulk_pos) = self.get_smart_window_positions(ctx, is_mobile);
+        let pos = self.windows.bulk_actions_pos.unwrap_or(bulk_pos);
+        window = window.current_pos(pos);
+        
+        let response = window.show(ctx, |ui| {
+            let action = self.render_bulk_actions(ui, is_mobile, button_height);
+            if action != BulkAction::None {
+                self.pending_bulk_action = action;
+            }
+        });
+        
+        // Save window position
+        if let Some(response) = response {
+            if let Some(pos) = response.response.rect.left_top().into() {
+                self.windows.bulk_actions_pos = Some(pos);
+            }
+        }
+    }
+    
+    fn show_keys_table_window(&mut self, ctx: &egui::Context, is_mobile: bool, button_height: f32) {
+        if !self.windows.show_keys_table {
+            return;
+        }
+        
+        let mut window = egui::Window::new("🔑 SSH Keys")
+            .resizable(true)
+            .collapsible(true)
+            .default_width(if is_mobile { 380.0 } else { 900.0 })
+            .default_height(if is_mobile { 500.0 } else { 700.0 })
+            .scroll([false, true]); // Enable vertical scrolling
+            
+        // Use saved position or smart default
+        let (flow_pos, stats_pos, keys_pos, bulk_pos) = self.get_smart_window_positions(ctx, is_mobile);
+        let pos = self.windows.keys_table_pos.unwrap_or(keys_pos);
+        window = window.current_pos(pos);
+        
+        let response = window.show(ctx, |ui| {
+            // Search and Filter section at the top
+            if !self.admin_state.keys.is_empty() {
+                ui.group(|ui| {
+                    ui.set_min_width(ui.available_width());
+                    self.render_search_controls(ui, is_mobile);
+                });
+                ui.add_space(10.0);
+            }
+            
+            // Keys content
+            if !self.admin_state.filtered_keys.is_empty() {
+                let action = self.render_keys_table(ui, is_mobile, button_height);
+                if action != KeyAction::None {
+                    self.pending_key_action = action;
+                }
+            } else if !self.admin_state.keys.is_empty() {
+                self.render_empty_state(ui);
+            } else {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(50.0);
+                    ui.label(egui::RichText::new("🔑").size(48.0).color(egui::Color32::GRAY));
+                    ui.label(egui::RichText::new("No keys loaded").size(18.0).color(egui::Color32::GRAY));
+                    ui.label(egui::RichText::new("Select a flow to load keys").size(14.0).color(egui::Color32::DARK_GRAY));
+                });
+            }
+        });
+        
+        // Save window position
+        if let Some(response) = response {
+            if let Some(pos) = response.response.rect.left_top().into() {
+                self.windows.keys_table_pos = Some(pos);
+            }
+        }
+    }
     fn load_flows(&mut self) {
         self.status_message = "Loading flows...".to_string();
         
