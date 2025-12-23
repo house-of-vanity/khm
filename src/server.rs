@@ -358,6 +358,7 @@ fn configure_web_routes(cfg: &mut web::ServiceConfig) {
         );
     
     // Web GUI routes
+    #[cfg(feature = "web-gui")]
     cfg.route("/gui", web::get().to(crate::web_gui::serve_egui_interface))
         .route("/gui/", web::get().to(crate::web_gui::serve_egui_interface))
         .route("/gui/config", web::get().to(crate::web_gui::get_gui_config))
